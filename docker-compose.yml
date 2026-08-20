@@ -1,13 +1,31 @@
 version: '3.8'
 
 services:
-  cutm-courseware-app:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: cutm-courseware-backend
+    volumes:
+      - sqlite_data:/app/server
+    environment:
+      - PORT=5000
+      - JWT_SECRET=dhanekula_ece_secret_token_key_2026
+      - ADMIN_USERNAME=admin
+      - ADMIN_INITIAL_PASSWORD=AdminSecurePassword123
+      - NODE_ENV=production
+    restart: always
+
+  frontend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: cutm-courseware-platform
     ports:
       - "8080:80"
+    depends_on:
+      - backend
     restart: always
-    environment:
-      - NODE_ENV=production
+
+volumes:
+  sqlite_data:

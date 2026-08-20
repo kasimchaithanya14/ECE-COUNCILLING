@@ -67,6 +67,15 @@ export interface Student {
   attendance: number;
   strengths: string[];
   focusAreas: string[];
+  department?: string;
+  year?: string;
+  semester?: string;
+  section?: string;
+  phone?: string;
+  academicStatus?: string;
+  parentName?: string;
+  notes?: string;
+  batch?: string;
 }
 
 export interface QuizQuestion {
@@ -87,3 +96,75 @@ export interface ExpectedOutcomeMetric {
   cohortTarget: CohortType | 'Both';
   icon: string;
 }
+
+export interface AdminUser {
+  id: number;
+  name: string;
+  email: string;
+  username: string;
+  role: 'SUPER_ADMIN' | 'SUB_ADMIN';
+  status: 'Active' | 'Disabled';
+  permissionsList: string[];
+  created_at: string;
+  last_login?: string;
+}
+
+export interface AuditLog {
+  id: number;
+  user: string;
+  action: string;
+  date_time: string;
+  target: string;
+  status: string;
+}
+
+export interface MediaSubmission {
+  id: number;
+  submitter_name: string;
+  submitter_email: string | null;
+  teaching_method_id: string;
+  teaching_method_name?: string;
+  file_path: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  description: string | null;
+  status: 'Pending' | 'Approved' | 'Rejected';
+  rejection_reason: string | null;
+  created_at: string;
+}
+
+export interface CounsellingSession {
+  id: number;
+  student_id: string;
+  counsellor_id: number;
+  counsellor_name: string;
+  counselling_date: string;
+  type: string;
+  private_notes: string;
+  student_concerns?: string;
+  guidance?: string;
+  action_items?: string;
+  follow_up_date?: string;
+  follow_up_required: 'Yes' | 'No';
+  status: 'Draft' | 'Completed' | 'Follow-Up Required';
+  publish_to_home: number;
+  allow_student_name_public: number;
+  public_title?: string;
+  public_summary?: string;
+  created_at?: string;
+  updated_at?: string;
+  student_name?: string;
+  student_roll?: string;
+}
+
+export interface PublicCounsellingUpdate {
+  id: number;
+  category: string;
+  title: string;
+  publicSummary: string;
+  publicDate: string;
+  counsellorName: string;
+  studentName: string;
+}
+

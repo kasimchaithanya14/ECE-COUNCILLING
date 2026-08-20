@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { TeachingMethod, WeeklyActivity, CoursewareResource, Student, UserRole, CohortType } from '../types';
+import { TeachingMethod, WeeklyActivity, CoursewareResource, Student, UserRole, CohortType, AdminUser, AuditLog, MediaSubmission, CounsellingSession, PublicCounsellingUpdate } from '../types';
 import {
   INITIAL_TEACHING_METHODS,
   INITIAL_WEEKLY_PLAN,
@@ -56,13 +56,57 @@ interface AppContextType {
   
   // Data Reset
   resetDataToDefault: () => void;
+
+  // Admin & Security States
+  adminUser: AdminUser | null;
+  isAdminLoggedIn: boolean;
+  isApiMode: boolean;
+  subAdmins: AdminUser[];
+  auditLogs: AuditLog[];
+  adminLogin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  adminLogout: () => Promise<void>;
+  fetchSubAdmins: () => Promise<void>;
+  createSubAdmin: (data: any) => Promise<{ success: boolean; error?: string }>;
+  updateSubAdmin: (id: number, data: any) => Promise<{ success: boolean; error?: string }>;
+  resetSubAdminPassword: (id: number, data: any) => Promise<{ success: boolean; error?: string }>;
+  deleteSubAdmin: (id: number) => Promise<{ success: boolean; error?: string }>;
+  fetchAuditLogs: () => Promise<void>;
+  syncData: () => Promise<void>;
+  mediaSubmissions: MediaSubmission[];
+  fetchMediaSubmissions: () => Promise<void>;
+  approveSubmission: (id: number) => Promise<{ success: boolean; error?: string }>;
+  rejectSubmission: (id: number, reason?: string) => Promise<{ success: boolean; error?: string }>;
+  deleteSubmission: (id: number) => Promise<{ success: boolean; error?: string }>;
+  submitMedia: (formData: FormData) => Promise<{ success: boolean; message?: string; error?: string }>;
+  fetchApprovedMedia: (methodId: string) => Promise<MediaSubmission[]>;
+  publicCounsellingUpdates: PublicCounsellingUpdate[];
+  adminStudents: Student[];
+  publishedCounsellingList: CounsellingSession[];
+  fetchAdminStudents: () => Promise<void>;
+  addStudent: (data: any) => Promise<{ success: boolean; error?: string; studentId?: string }>;
+  updateStudent: (id: string, data: any) => Promise<{ success: boolean; error?: string }>;
+  deleteStudent: (id: string) => Promise<{ success: boolean; error?: string }>;
+  fetchCounsellingHistory: (studentId: string) => Promise<CounsellingSession[]>;
+  addCounsellingSession: (studentId: string, data: any) => Promise<{ success: boolean; error?: string }>;
+  updateCounsellingSession: (sessionId: number, data: any) => Promise<{ success: boolean; error?: string }>;
+  deleteCounsellingSession: (sessionId: number) => Promise<{ success: boolean; error?: string }>;
+  publishCounsellingUpdate: (sessionId: number, data: any) => Promise<{ success: boolean; error?: string }>;
+  fetchPublishedCounsellingList: () => Promise<void>;
+  fetchPublicCounsellingUpdates: () => Promise<void>;
+  assignments: any[];
+  assignmentHistory: any[];
+  fetchAssignments: () => Promise<void>;
+  fetchAssignmentHistory: () => Promise<void>;
+  assignStudents: (subAdminId: number | string, studentIds: string[], forceReassign: boolean, reason?: string) => Promise<any>;
+  removeAssignment: (studentId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Traditional Local Roles (default: faculty/student selection)
   const [role, setRoleState] = useState<UserRole>(() => {
-    return (localStorage.getItem('dhanekula_role') as UserRole) || 'faculty';
+    return (localStorage.getItem('dhanekula_role') as UserRole) || 'student';
   });
   
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -75,26 +119,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Persistent States
-  const [teachingMethods, setTeachingMethods] = useState<TeachingMethod[]>(() => {
-    const saved = localStorage.getItem('dhanekula_methods');
-    return saved ? JSON.parse(saved) : INITIAL_TEACHING_METHODS;
-  });
+  // Core Entity States
+  const [teachingMethods, setTeachingMethods] = useState<TeachingMethod[]>([]);
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyActivity[]>([]);
+  const [resources, setResources] = useState<CoursewareResource[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
 
-  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyActivity[]>(() => {
-    const saved = localStorage.getItem('dhanekula_weekly_plan');
-    return saved ? JSON.parse(saved) : INITIAL_WEEKLY_PLAN;
-  });
-
-  const [resources, setResources] = useState<CoursewareResource[]>(() => {
-    const saved = localStorage.getItem('dhanekula_resources');
-    return saved ? JSON.parse(saved) : INITIAL_COURSEWARE_RESOURCES;
-  });
-
-  const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem('dhanekula_students');
-    return saved ? JSON.parse(saved) : INITIAL_STUDENTS;
-  });
+  // Admin & Security States
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [isApiMode, setIsApiMode] = useState<boolean>(false);
+  const [subAdmins, setSubAdmins] = useState<AdminUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [mediaSubmissions, setMediaSubmissions] = useState<MediaSubmission[]>([]);
+  const [publicCounsellingUpdates, setPublicCounsellingUpdates] = useState<PublicCounsellingUpdate[]>([]);
+  const [adminStudents, setAdminStudents] = useState<Student[]>([]);
+  const [publishedCounsellingList, setPublishedCounsellingList] = useState<CounsellingSession[]>([]);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [assignmentHistory, setAssignmentHistory] = useState<any[]>([]);
 
   // Modal States
   const [selectedMethod, setSelectedMethod] = useState<TeachingMethod | null>(null);
@@ -104,6 +145,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isFacultyEditModalOpen, setIsFacultyEditModalOpen] = useState(false);
   const [editingMethod, setEditingMethod] = useState<TeachingMethod | null>(null);
 
+  // Toast Function
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
+
+  // Sync data from Express API with Local Storage fallback
+  const syncData = async () => {
+    try {
+      const response = await fetch('/api/methods');
+      if (response.ok) {
+        const methodsData = await response.json();
+        const schedRes = await fetch('/api/schedule');
+        const schedData = await schedRes.json();
+        const resRes = await fetch('/api/resources');
+        const resData = await resRes.json();
+        const studRes = await fetch('/api/students');
+        const studData = await studRes.json();
+
+        setTeachingMethods(methodsData);
+        setWeeklyPlan(schedData);
+        setResources(resData);
+        setStudents(studData);
+        setIsApiMode(true);
+      } else {
+        throw new Error('API server unreachable');
+      }
+    } catch (error) {
+      console.warn('Backend offline, using localStorage/static fallback.', error);
+      setIsApiMode(false);
+      
+      // Local Storage Fallback initialization
+      const savedMethods = localStorage.getItem('dhanekula_methods');
+      setTeachingMethods(savedMethods ? JSON.parse(savedMethods) : INITIAL_TEACHING_METHODS);
+
+      const savedWeekly = localStorage.getItem('dhanekula_weekly_plan');
+      setWeeklyPlan(savedWeekly ? JSON.parse(savedWeekly) : INITIAL_WEEKLY_PLAN);
+
+      const savedResources = localStorage.getItem('dhanekula_resources');
+      setResources(savedResources ? JSON.parse(savedResources) : INITIAL_COURSEWARE_RESOURCES);
+
+      const savedStudents = localStorage.getItem('dhanekula_students');
+      setStudents(savedStudents ? JSON.parse(savedStudents) : INITIAL_STUDENTS);
+    }
+  };
+
+  // Check auth session on startup and load resources
+  useEffect(() => {
+    const initSession = async () => {
+      await syncData();
+      await fetchPublicCounsellingUpdates();
+      try {
+        const meRes = await fetch('/api/auth/me', { credentials: 'include' });
+        if (meRes.ok) {
+          const data = await meRes.json();
+          setAdminUser(data.user);
+          // Set role to faculty to allow edit triggers in basic tabs
+          setRoleState('faculty');
+        } else {
+          setRoleState('student');
+        }
+      } catch (err) {
+        setRoleState('student');
+        console.log('No active admin session found.');
+      }
+    };
+    initSession();
+  }, []);
+
+  // Theme Sync effect
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'dark') {
@@ -114,7 +227,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('dhanekula_theme', theme);
   }, [theme]);
 
+  // Persist fallback variables to localStorage on updates (when API mode is false)
+  useEffect(() => {
+    if (!isApiMode && teachingMethods.length > 0) {
+      localStorage.setItem('dhanekula_methods', JSON.stringify(teachingMethods));
+    }
+  }, [teachingMethods, isApiMode]);
+
+  useEffect(() => {
+    if (!isApiMode && weeklyPlan.length > 0) {
+      localStorage.setItem('dhanekula_weekly_plan', JSON.stringify(weeklyPlan));
+    }
+  }, [weeklyPlan, isApiMode]);
+
+  useEffect(() => {
+    if (!isApiMode && resources.length > 0) {
+      localStorage.setItem('dhanekula_resources', JSON.stringify(resources));
+    }
+  }, [resources, isApiMode]);
+
+  useEffect(() => {
+    if (!isApiMode && students.length > 0) {
+      localStorage.setItem('dhanekula_students', JSON.stringify(students));
+    }
+  }, [students, isApiMode]);
+
   const setRole = (newRole: UserRole) => {
+    if (newRole === 'faculty' && !adminUser) {
+      showToast("Access Denied: Admin login required.");
+      return;
+    }
     setRoleState(newRole);
     localStorage.setItem('dhanekula_role', newRole);
     showToast(`Switched access mode: ${newRole.toUpperCase()}`);
@@ -124,73 +266,177 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 4000);
-  };
+  // ==========================================
+  // ACADEMIC OPERATION ACTIONS (Synced with API or Local Storage)
+  // ==========================================
 
-  useEffect(() => {
-    localStorage.setItem('dhanekula_methods', JSON.stringify(teachingMethods));
-  }, [teachingMethods]);
-
-  useEffect(() => {
-    localStorage.setItem('dhanekula_weekly_plan', JSON.stringify(weeklyPlan));
-  }, [weeklyPlan]);
-
-  useEffect(() => {
-    localStorage.setItem('dhanekula_resources', JSON.stringify(resources));
-  }, [resources]);
-
-  useEffect(() => {
-    localStorage.setItem('dhanekula_students', JSON.stringify(students));
-  }, [students]);
-
-  const updateMethod = (updated: TeachingMethod) => {
-    setTeachingMethods((prev) =>
-      prev.map((m) => (m.id === updated.id ? updated : m))
-    );
-    if (selectedMethod && selectedMethod.id === updated.id) {
-      setSelectedMethod(updated);
+  const updateMethod = async (updated: TeachingMethod) => {
+    if (isApiMode) {
+      try {
+        const res = await fetch(`/api/methods/${updated.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to update method on server.');
+        }
+        showToast(`Updated teaching method: "${updated.name}"`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setTeachingMethods((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      if (selectedMethod && selectedMethod.id === updated.id) {
+        setSelectedMethod(updated);
+      }
+      showToast(`Updated teaching method: "${updated.name}"`);
     }
-    showToast(`Updated teaching method: "${updated.name}"`);
   };
 
-  const addMethod = (newMethod: TeachingMethod) => {
-    setTeachingMethods((prev) => [newMethod, ...prev]);
-    showToast(`Added new method: "${newMethod.name}"`);
+  const addMethod = async (newMethod: TeachingMethod) => {
+    if (isApiMode) {
+      try {
+        const res = await fetch('/api/methods', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newMethod),
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to create method on server.');
+        }
+        showToast(`Added new method: "${newMethod.name}"`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setTeachingMethods((prev) => [newMethod, ...prev]);
+      showToast(`Added new method: "${newMethod.name}"`);
+    }
   };
 
-  const deleteMethod = (id: string) => {
+  const deleteMethod = async (id: string) => {
     const target = teachingMethods.find(m => m.id === id);
-    setTeachingMethods((prev) => prev.filter((m) => m.id !== id));
-    showToast(`Deleted method: "${target?.name || id}"`);
+    if (isApiMode) {
+      try {
+        const res = await fetch(`/api/methods/${id}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to delete method on server.');
+        }
+        showToast(`Deleted method: "${target?.name || id}"`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setTeachingMethods((prev) => prev.filter((m) => m.id !== id));
+      showToast(`Deleted method: "${target?.name || id}"`);
+    }
   };
 
-  const updateWeeklyActivity = (updated: WeeklyActivity) => {
-    setWeeklyPlan((prev) =>
-      prev.map((a) => (a.id === updated.id ? updated : a))
-    );
-    showToast(`Updated schedule for ${updated.day}`);
+  const updateWeeklyActivity = async (updated: WeeklyActivity) => {
+    if (isApiMode) {
+      try {
+        const res = await fetch(`/api/schedule/${updated.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to update schedule.');
+        }
+        showToast(`Updated schedule for ${updated.day}`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setWeeklyPlan((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      showToast(`Updated schedule for ${updated.day}`);
+    }
   };
 
-  const addResource = (res: CoursewareResource) => {
-    setResources((prev) => [res, ...prev]);
-    showToast(`Uploaded courseware file: "${res.title}"`);
+  const addResource = async (resObj: CoursewareResource) => {
+    if (isApiMode) {
+      try {
+        const res = await fetch('/api/resources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(resObj),
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to add resource.');
+        }
+        showToast(`Uploaded courseware file: "${resObj.title}"`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setResources((prev) => [resObj, ...prev]);
+      showToast(`Uploaded courseware file: "${resObj.title}"`);
+    }
   };
 
-  const deleteResource = (id: string) => {
+  const deleteResource = async (id: string) => {
     const target = resources.find(r => r.id === id);
-    setResources((prev) => prev.filter((r) => r.id !== id));
-    showToast(`Deleted resource file: "${target?.title || id}"`);
+    if (isApiMode) {
+      try {
+        const res = await fetch(`/api/resources/${id}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to delete resource.');
+        }
+        showToast(`Deleted resource file: "${target?.title || id}"`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setResources((prev) => prev.filter((r) => r.id !== id));
+      showToast(`Deleted resource file: "${target?.title || id}"`);
+    }
   };
 
-  const updateStudentCohort = (studentId: string, cohort: CohortType) => {
-    setStudents((prev) =>
-      prev.map((s) => (s.id === studentId ? { ...s, cohort } : s))
-    );
-    showToast(`Assigned student to ${cohort}`);
+  const updateStudentCohort = async (studentId: string, cohort: CohortType) => {
+    if (isApiMode) {
+      try {
+        const res = await fetch(`/api/students/${studentId}/cohort`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cohort }),
+          credentials: 'include'
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Failed to update student cohort.');
+        }
+        showToast(`Assigned student to ${cohort}`);
+        await syncData();
+      } catch (err: any) {
+        showToast(`Error: ${err.message}`);
+      }
+    } else {
+      setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, cohort } : s)));
+      showToast(`Assigned student to ${cohort}`);
+    }
   };
 
   const resetDataToDefault = () => {
@@ -204,6 +450,499 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('dhanekula_students');
     showToast('Reset baseline syllabus data.');
   };
+
+  // ==========================================
+  // ADMIN SYSTEM ENDPOINT METHODS
+  // ==========================================
+
+  const adminLogin = async (username: string, password: string) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Login failed.' };
+      }
+      setAdminUser(data.user);
+      setRoleState('faculty'); // Ensure they have faculty edit triggers enabled
+      showToast(`Welcome back, ${data.user.name}`);
+      await syncData();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: 'Cannot connect to backend auth service.' };
+    }
+  };
+
+  const adminLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch (err) {
+      console.warn('Network issue during logout cleanup');
+    }
+    setAdminUser(null);
+    setSubAdmins([]);
+    setAuditLogs([]);
+    setRoleState('student');
+    localStorage.setItem('dhanekula_role', 'student');
+    showToast('Logged out securely.');
+  };
+
+  const fetchSubAdmins = async () => {
+    try {
+      const res = await fetch('/api/admin/sub-admins', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setSubAdmins(data);
+      }
+    } catch (err) {
+      console.error('Error fetching sub admins', err);
+    }
+  };
+
+  const createSubAdmin = async (data: any) => {
+    try {
+      const res = await fetch('/api/admin/sub-admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        return { success: false, error: body.error || 'Failed to create sub-admin.' };
+      }
+      showToast(`Created sub-admin: "${data.name}"`);
+      await fetchSubAdmins();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: 'Network error. Failed to communicate with server.' };
+    }
+  };
+
+  const updateSubAdmin = async (id: number, data: any) => {
+    try {
+      const res = await fetch(`/api/admin/sub-admins/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        return { success: false, error: body.error || 'Failed to update sub-admin.' };
+      }
+      showToast(`Updated sub-admin: "${data.name}"`);
+      await fetchSubAdmins();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const resetSubAdminPassword = async (id: number, data: any) => {
+    try {
+      const res = await fetch(`/api/admin/sub-admins/${id}/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        return { success: false, error: body.error || 'Failed to reset password.' };
+      }
+      showToast('Password reset completed successfully.');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const deleteSubAdmin = async (id: number) => {
+    try {
+      const res = await fetch(`/api/admin/sub-admins/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        return { success: false, error: body.error || 'Failed to delete sub-admin.' };
+      }
+      showToast('Sub-admin deleted.');
+      await fetchSubAdmins();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const fetchAuditLogs = async () => {
+    try {
+      const res = await fetch('/api/admin/audit-logs', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setAuditLogs(data);
+      }
+    } catch (err) {
+      console.error('Error fetching audit logs', err);
+    }
+  };
+
+  const fetchMediaSubmissions = async () => {
+    try {
+      const res = await fetch('/api/admin/submissions', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setMediaSubmissions(data);
+      }
+    } catch (err) {
+      console.error('Error fetching submissions:', err);
+    }
+  };
+
+  const approveSubmission = async (id: number) => {
+    try {
+      const res = await fetch(`/api/admin/submissions/${id}/approve`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Failed to approve.' };
+      }
+      showToast('Media submission approved.');
+      await fetchMediaSubmissions();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const rejectSubmission = async (id: number, reason?: string) => {
+    try {
+      const res = await fetch(`/api/admin/submissions/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Failed to reject.' };
+      }
+      showToast('Media submission rejected.');
+      await fetchMediaSubmissions();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const deleteSubmission = async (id: number) => {
+    try {
+      const res = await fetch(`/api/admin/submissions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Failed to delete.' };
+      }
+      showToast('Media submission deleted.');
+      await fetchMediaSubmissions();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const submitMedia = async (formData: FormData) => {
+    try {
+      const res = await fetch('/api/submissions', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Failed to submit media.' };
+      }
+      showToast('Media submitted successfully!');
+      return { success: true, message: data.message };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const fetchApprovedMedia = async (methodId: string): Promise<MediaSubmission[]> => {
+    try {
+      const res = await fetch(`/api/submissions/approved/${methodId}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.error('Error fetching approved media:', err);
+    }
+    return [];
+  };
+
+  const fetchAdminStudents = async () => {
+    try {
+      const res = await fetch('/api/admin/students', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setAdminStudents(data);
+      }
+    } catch (err) {
+      console.error('Error fetching admin students:', err);
+    }
+  };
+
+  const addStudent = async (data: any) => {
+    try {
+      const res = await fetch('/api/admin/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to create student.' };
+      }
+      showToast(`Created student: "${data.name}"`);
+      await fetchAdminStudents();
+      return { success: true, studentId: resData.studentId };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const updateStudent = async (id: string, data: any) => {
+    try {
+      const res = await fetch(`/api/admin/students/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to update student.' };
+      }
+      showToast(`Updated student details.`);
+      await fetchAdminStudents();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const deleteStudent = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/students/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to delete student.' };
+      }
+      showToast(`Student record deleted.`);
+      await fetchAdminStudents();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const fetchCounsellingHistory = async (studentId: string): Promise<CounsellingSession[]> => {
+    try {
+      const res = await fetch(`/api/admin/students/${studentId}/counselling`, { credentials: 'include' });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.error('Error fetching counselling history:', err);
+    }
+    return [];
+  };
+
+  const addCounsellingSession = async (studentId: string, data: any) => {
+    try {
+      const res = await fetch(`/api/admin/students/${studentId}/counselling`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to record session.' };
+      }
+      showToast(`Counselling session recorded.`);
+      await fetchPublishedCounsellingList();
+      await fetchPublicCounsellingUpdates();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const updateCounsellingSession = async (sessionId: number, data: any) => {
+    try {
+      const res = await fetch(`/api/admin/counselling/${sessionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to update session.' };
+      }
+      showToast(`Counselling session updated.`);
+      await fetchPublishedCounsellingList();
+      await fetchPublicCounsellingUpdates();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const deleteCounsellingSession = async (sessionId: number) => {
+    try {
+      const res = await fetch(`/api/admin/counselling/${sessionId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to delete session.' };
+      }
+      showToast(`Counselling session deleted.`);
+      await fetchPublishedCounsellingList();
+      await fetchPublicCounsellingUpdates();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const publishCounsellingUpdate = async (sessionId: number, data: any) => {
+    try {
+      const res = await fetch(`/api/admin/counselling/${sessionId}/publish`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (!res.ok) {
+        return { success: false, error: resData.error || 'Failed to change publication status.' };
+      }
+      showToast(`Publication status updated.`);
+      await fetchPublishedCounsellingList();
+      await fetchPublicCounsellingUpdates();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
+  const fetchPublishedCounsellingList = async () => {
+    try {
+      const res = await fetch('/api/admin/published-counselling', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setPublishedCounsellingList(data);
+      }
+    } catch (err) {
+      console.error('Error fetching published counselling list:', err);
+    }
+  };
+
+  const fetchPublicCounsellingUpdates = async () => {
+    try {
+      const res = await fetch('/api/public/counselling');
+      if (res.ok) {
+        const data = await res.json();
+        setPublicCounsellingUpdates(data);
+      }
+    } catch (err) {
+      console.error('Error fetching public counselling updates:', err);
+    }
+  };
+
+  const fetchAssignments = async () => {
+    try {
+      const res = await fetch('/api/admin/assignments', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setAssignments(data);
+      }
+    } catch (err) {
+      console.error('Error fetching assignments:', err);
+    }
+  };
+
+  const fetchAssignmentHistory = async () => {
+    try {
+      const res = await fetch('/api/admin/assignments/history', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setAssignmentHistory(data);
+      }
+    } catch (err) {
+      console.error('Error fetching assignment history:', err);
+    }
+  };
+
+  const assignStudents = async (subAdminId: number | string, studentIds: string[], forceReassign: boolean, reason?: string) => {
+    try {
+      const res = await fetch('/api/admin/assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subAdminId, studentIds, forceReassign, reason }),
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (res.ok && !data.hasConflicts) {
+        showToast('Students assigned successfully.');
+        await fetchAssignments();
+        await fetchAssignmentHistory();
+      }
+      return data;
+    } catch (err: any) {
+      console.error('Error assigning students:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const removeAssignment = async (studentId: string) => {
+    try {
+      const res = await fetch(`/api/admin/assignments/${studentId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Assignment removed successfully.');
+        await fetchAssignments();
+        await fetchAssignmentHistory();
+        return { success: true };
+      }
+      return { success: false, error: data.error || 'Failed to remove assignment.' };
+    } catch (err: any) {
+      console.error('Error removing assignment:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const isAdminLoggedIn = !!adminUser;
 
   return (
     <AppContext.Provider
@@ -242,6 +981,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toastMessage,
         showToast,
         resetDataToDefault,
+        
+        // Admin Management exports
+        adminUser,
+        isAdminLoggedIn,
+        isApiMode,
+        subAdmins,
+        auditLogs,
+        adminLogin,
+        adminLogout,
+        fetchSubAdmins,
+        createSubAdmin,
+        updateSubAdmin,
+        resetSubAdminPassword,
+        deleteSubAdmin,
+        fetchAuditLogs,
+        syncData,
+        mediaSubmissions,
+        fetchMediaSubmissions,
+        approveSubmission,
+        rejectSubmission,
+        deleteSubmission,
+        submitMedia,
+        fetchApprovedMedia,
+        publicCounsellingUpdates,
+        adminStudents,
+        publishedCounsellingList,
+        fetchAdminStudents,
+        addStudent,
+        updateStudent,
+        deleteStudent,
+        fetchCounsellingHistory,
+        addCounsellingSession,
+        updateCounsellingSession,
+        deleteCounsellingSession,
+        publishCounsellingUpdate,
+        fetchPublishedCounsellingList,
+        fetchPublicCounsellingUpdates,
+        assignments,
+        assignmentHistory,
+        fetchAssignments,
+        fetchAssignmentHistory,
+        assignStudents,
+        removeAssignment
       }}
     >
       {children}

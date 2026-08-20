@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   X,
@@ -13,11 +13,19 @@ import {
   Plus,
   Trash2,
   BookOpen,
+  Calendar,
+  Award,
+  Users,
+  CheckCircle2,
+  GraduationCap,
+  Image,
+  Film,
+  Download,
   Cpu,
-  Upload,
-  CheckCircle2
+  Upload
 } from 'lucide-react';
-import { CoursewareResource } from '../types';
+import { CoursewareResource, MediaSubmission } from '../types';
+import { MediaSubmissionModal } from './MediaSubmissionModal';
 
 export const MethodDetailModal: React.FC = () => {
   const {
@@ -32,7 +40,27 @@ export const MethodDetailModal: React.FC = () => {
     setIsAITutorOpen,
     setIsDailyQuizOpen,
     showToast,
+    fetchApprovedMedia
   } = useApp();
+
+  const [approvedMedia, setApprovedMedia] = useState<MediaSubmission[]>([]);
+  const [showSubmitMediaModal, setShowSubmitMediaModal] = useState(false);
+
+  // Fetch approved media for this method on selection
+  useEffect(() => {
+    if (selectedMethod) {
+      fetchApprovedMedia(selectedMethod.id).then(setApprovedMedia);
+    } else {
+      setApprovedMedia([]);
+    }
+  }, [selectedMethod]);
+
+  const refreshMedia = async () => {
+    if (selectedMethod) {
+      const list = await fetchApprovedMedia(selectedMethod.id);
+      setApprovedMedia(list);
+    }
+  };
 
   const [isEditingInModal, setIsEditingInModal] = useState(false);
   const [editedImplementation, setEditedImplementation] = useState('');
@@ -513,6 +541,108 @@ export const MethodDetailModal: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Photos & Public Media Submissions */}
+          <div className="space-y-3 pt-4 border-t border-slate-200/60 dark:border-slate-800/60">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Image className="h-4 w-4 text-emerald-600" />
+                Photos & Media ({approvedMedia.length})
+              </h4>
+              <button
+                onClick={() => setShowSubmitMediaModal(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-250/20 text-emerald-700 dark:text-emerald-300 font-bold text-xs hover:bg-emerald-100 dark:hover:bg-emerald-900 transition-colors btn-micro-interaction flex items-center gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Share Your Media</span>
+              </button>
+            </div>
+
+            {approvedMedia.length === 0 ? (
+              <p className="text-xs text-slate-500 italic p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-center">
+                No verified media shared yet. Be the first to submit photos or document records above!
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {approvedMedia.map((media) => {
+                  const isImg = ['jpg', 'jpeg', 'png', 'webp'].some(ext => media.file_type.toLowerCase().includes(ext) || media.file_name.toLowerCase().endsWith(ext));
+                  const isVideo = ['mp4', 'webm'].some(ext => media.file_type.toLowerCase().includes(ext) || media.file_name.toLowerCase().endsWith(ext));
+
+                  return (
+                    <div
+                      key={media.id}
+                      className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 space-y-3 flex flex-col justify-between hover:shadow-md transition-shadow"
+                    >
+                      <div className="space-y-2">
+                        {/* Media Preview Container */}
+                        {isImg && (
+                          <div className="w-full h-36 rounded-xl overflow-hidden border border-slate-100 dark:border-slate-800 bg-slate-105 dark:bg-slate-950">
+                            <img
+                              src={media.file_path}
+                              alt={media.file_name}
+                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                            />
+                          </div>
+                        )}
+                        {isVideo && (
+                          <div className="w-full h-36 rounded-xl overflow-hidden border border-slate-100 dark:border-slate-800 bg-black">
+                            <video
+                              src={media.file_path}
+                              controls
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                        )}
+                        {!isImg && !isVideo && (
+                          <div className="w-full h-16 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-55 dark:bg-slate-850 flex items-center gap-2.5 px-3">
+                            <FileText className="h-5 w-5 text-blue-500 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <span className="font-bold text-[11px] block truncate text-slate-850 dark:text-slate-200">{media.file_name}</span>
+                              <span className="text-[9px] text-slate-450 block uppercase tracking-wider">{media.file_type.split('/').pop()} Document</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Description */}
+                        {media.description && (
+                          <p className="text-[11px] text-slate-650 dark:text-slate-350 leading-relaxed italic bg-slate-50/50 dark:bg-slate-850/40 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-800/30">
+                            "{media.description}"
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Submitter info bar */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/50 text-[10px]">
+                        <div>
+                          <span className="font-semibold text-slate-400 block">Submitted by:</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200 block truncate max-w-[120px]">{media.submitter_name}</span>
+                        </div>
+                        <a
+                          href={media.file_path}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-105 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 font-bold transition-all text-slate-700 dark:text-slate-300"
+                        >
+                          <Download className="h-3 w-3" />
+                          <span>View file</span>
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Media upload form modal trigger */}
+          <MediaSubmissionModal
+            isOpen={showSubmitMediaModal}
+            onClose={() => {
+              setShowSubmitMediaModal(false);
+              refreshMedia();
+            }}
+            defaultMethodId={selectedMethod.id}
+          />
 
         </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
@@ -13,6 +13,8 @@ import { ResourceViewerModal } from './components/ResourceViewerModal';
 import { DailyQuizModule } from './components/DailyQuizModule';
 import { AITutorModal } from './components/AITutorModal';
 import { FacultyEditModal } from './components/FacultyEditModal';
+import { AdminLogin } from './components/AdminLogin';
+import { AdminDashboard } from './components/AdminDashboard';
 import {
   BookOpen,
   Calendar,
@@ -20,12 +22,18 @@ import {
   FileText,
   Users,
   CheckCircle2,
-  GraduationCap
+  GraduationCap,
+  HeartHandshake
 } from 'lucide-react';
 
-const DashboardContent: React.FC = () => {
+interface DashboardContentProps {
+  navigate: (path: string) => void;
+  initialTab?: 'methods' | 'schedule' | 'outcomes' | 'resources' | 'roster';
+}
+
+const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTab = 'methods' }) => {
   const { toastMessage } = useApp();
-  const [activeTab, setActiveTab] = useState<'methods' | 'schedule' | 'outcomes' | 'resources' | 'roster'>('methods');
+  const [activeTab, setActiveTab] = useState<'methods' | 'schedule' | 'outcomes' | 'resources' | 'roster'>(initialTab);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
@@ -98,8 +106,8 @@ const DashboardContent: React.FC = () => {
                   : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
               }`}
             >
-              <Users className="h-4 w-4 text-dhanekula-royal" />
-              <span>Student Roster & Cohorts</span>
+              <HeartHandshake className="h-4 w-4 text-dhanekula-royal" />
+              <span>Student Counselling</span>
             </button>
           </nav>
         </div>
@@ -141,7 +149,16 @@ const DashboardContent: React.FC = () => {
               Dhanekula Institute of Engineering and Technology (Autonomous)
             </span>
           </div>
-          <p>© {new Date().getFullYear()} Department of Electronics & Communication Engineering.</p>
+          <div className="flex items-center gap-3">
+            <p>© {new Date().getFullYear()} Department of Electronics & Communication Engineering.</p>
+            <span className="text-slate-350 dark:text-slate-700">|</span>
+            <button
+              onClick={() => navigate('/admin')}
+              className="font-extrabold text-dhanekula-royal hover:underline hover:text-dhanekula-600 dark:text-dhanekula-300 transition-colors"
+            >
+              Admin Portal
+            </button>
+          </div>
         </div>
       </footer>
 
@@ -149,10 +166,52 @@ const DashboardContent: React.FC = () => {
   );
 };
 
+const MainAppContent: React.FC = () => {
+  const { isAdminLoggedIn } = useApp();
+  const [path, setPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigate = (newPath: string) => {
+    window.history.pushState({}, '', newPath);
+    setPath(newPath);
+  };
+
+  // Route switches
+  if (path === '/student-counselling') {
+    if (isAdminLoggedIn) {
+      return <AdminDashboard navigate={navigate} initialTab="counselling" />;
+    }
+    return <DashboardContent navigate={navigate} initialTab="roster" />;
+  }
+
+  if (path === '/admin') {
+    if (!isAdminLoggedIn) {
+      return <AdminLogin navigate={navigate} />;
+    }
+    return <AdminDashboard navigate={navigate} />;
+  }
+
+  if (path === '/admin/login') {
+    if (isAdminLoggedIn) {
+      return <AdminDashboard navigate={navigate} />;
+    }
+    return <AdminLogin navigate={navigate} />;
+  }
+
+  return <DashboardContent navigate={navigate} />;
+};
+
 export function App() {
   return (
     <AppProvider>
-      <DashboardContent />
+      <MainAppContent />
     </AppProvider>
   );
 }
