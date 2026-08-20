@@ -40,7 +40,7 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
       <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        
+
         {/* Hero Section */}
         <HeroBanner />
 
@@ -52,11 +52,10 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
           <nav className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
             <button
               onClick={() => setActiveTab('methods')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                activeTab === 'methods'
-                  ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${activeTab === 'methods'
+                ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                }`}
             >
               <BookOpen className="h-4 w-4 text-dhanekula-royal" />
               <span>Innovative Teaching Methods (20)</span>
@@ -64,11 +63,10 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
 
             <button
               onClick={() => setActiveTab('schedule')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                activeTab === 'schedule'
-                  ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${activeTab === 'schedule'
+                ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                }`}
             >
               <Calendar className="h-4 w-4 text-dhanekula-royal" />
               <span>Weekly Activity Plan</span>
@@ -76,11 +74,10 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
 
             <button
               onClick={() => setActiveTab('outcomes')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                activeTab === 'outcomes'
-                  ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${activeTab === 'outcomes'
+                ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                }`}
             >
               <Award className="h-4 w-4 text-dhanekula-royal" />
               <span>Expected Outcomes & Analytics</span>
@@ -88,11 +85,10 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
 
             <button
               onClick={() => setActiveTab('resources')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                activeTab === 'resources'
-                  ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${activeTab === 'resources'
+                ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                }`}
             >
               <FileText className="h-4 w-4 text-dhanekula-royal" />
               <span>Digital Courseware Library</span>
@@ -100,11 +96,10 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
 
             <button
               onClick={() => setActiveTab('roster')}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                activeTab === 'roster'
-                  ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${activeTab === 'roster'
+                ? 'border-dhanekula-royal text-dhanekula-royal dark:border-dhanekula-400 dark:text-dhanekula-400 scale-105'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                }`}
             >
               <HeartHandshake className="h-4 w-4 text-dhanekula-royal" />
               <span>Student Counselling</span>
