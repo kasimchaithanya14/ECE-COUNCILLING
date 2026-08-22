@@ -296,6 +296,48 @@ router.put('/admin/sub-admins/:id', authenticateToken, requireRole(['SUPER_ADMIN
   }
 });
 
+// PUT: Toggle/Update Teaching Methods permission for sub-admin (SUPER_ADMIN only)
+router.put('/admin/sub-admins/:id/permissions/teaching-methods', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  const { granted } = req.body;
+
+  try {
+    const targetUser = await dbGet('SELECT * FROM users WHERE id = ?', [id]);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Sub-admin not found.' });
+    }
+
+    if (targetUser.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Super Admin already possesses all management permissions.' });
+    }
+
+    let permissions = JSON.parse(targetUser.permissions || '[]');
+    const permName = 'Manage Teaching Methods';
+
+    if (granted) {
+      if (!permissions.includes(permName)) {
+        permissions.push(permName);
+      }
+    } else {
+      permissions = permissions.filter(p => p !== permName);
+    }
+
+    const permsJson = JSON.stringify(permissions);
+    await dbRun('UPDATE users SET permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [permsJson, id]);
+
+    const actionText = granted ? 'Granted Teaching Methods Permission' : 'Revoked Teaching Methods Permission';
+    await logActivity(req.user.name, actionText, `Sub-Admin "${targetUser.name}"`, 'Success');
+
+    return res.json({
+      message: `${actionText} for "${targetUser.name}".`,
+      permissions: permissions
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Failed to update teaching methods permission.' });
+  }
+});
+
 // POST: Reset sub-admin password (SUPER_ADMIN only)
 router.post('/admin/sub-admins/:id/reset-password', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
   const { id } = req.params;
@@ -709,12 +751,31 @@ router.get('/admin/students', authenticateToken, async (req, res) => {
   try {
     let rows;
     if (req.user.role === 'SUPER_ADMIN') {
-      rows = await dbQuery('SELECT * FROM students ORDER BY name ASC');
+      rows = await dbQuery(`
+        SELECT 
+          s.*,
+          sa.sub_admin_id AS assignedSubAdminId,
+          u.name AS assignedSubAdminName,
+          (SELECT counselling_date FROM counselling_sessions WHERE student_id = s.id ORDER BY counselling_date DESC, id DESC LIMIT 1) AS latestCounsellingDate,
+          (SELECT counsellor_name FROM counselling_sessions WHERE student_id = s.id ORDER BY counselling_date DESC, id DESC LIMIT 1) AS latestCounsellorName,
+          (SELECT COUNT(*) FROM counselling_sessions WHERE student_id = s.id) AS counsellingSessionsCount
+        FROM students s
+        LEFT JOIN student_assignments sa ON s.id = sa.student_id
+        LEFT JOIN users u ON sa.sub_admin_id = u.id
+        ORDER BY s.name ASC
+      `);
     } else {
       rows = await dbQuery(`
-        SELECT s.* 
+        SELECT 
+          s.*,
+          sa.sub_admin_id AS assignedSubAdminId,
+          u.name AS assignedSubAdminName,
+          (SELECT counselling_date FROM counselling_sessions WHERE student_id = s.id ORDER BY counselling_date DESC, id DESC LIMIT 1) AS latestCounsellingDate,
+          (SELECT counsellor_name FROM counselling_sessions WHERE student_id = s.id ORDER BY counselling_date DESC, id DESC LIMIT 1) AS latestCounsellorName,
+          (SELECT COUNT(*) FROM counselling_sessions WHERE student_id = s.id) AS counsellingSessionsCount
         FROM students s
         JOIN student_assignments sa ON s.id = sa.student_id
+        JOIN users u ON sa.sub_admin_id = u.id
         WHERE sa.sub_admin_id = ?
         ORDER BY s.name ASC
       `, [req.user.id]);
@@ -728,6 +789,57 @@ router.get('/admin/students', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Failed to fetch students roster.' });
+  }
+});
+
+// GET: Admin - get single student with assignment check
+router.get('/admin/students/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const canAccess = req.user.role === 'SUPER_ADMIN' || 
+                    req.user.permissionsList.includes('View Students') || 
+                    req.user.permissionsList.includes('Manage Students') ||
+                    req.user.permissionsList.includes('View Counselling') || 
+                    req.user.permissionsList.includes('Manage Counselling');
+  if (!canAccess) {
+    return res.status(403).json({ error: 'Permission denied. Requires student viewing access.' });
+  }
+
+  try {
+    if (req.user.role === 'SUB_ADMIN') {
+      const assignment = await dbGet('SELECT 1 FROM student_assignments WHERE student_id = ? AND sub_admin_id = ?', [id, req.user.id]);
+      if (!assignment) {
+        await logActivity(req.user.name, 'Unauthorized Student Access Attempt', `Student ID: ${id}`, 'Denied');
+        return res.status(403).json({ error: 'Access denied. You are not assigned to this student.' });
+      }
+    }
+
+    const row = await dbGet(`
+      SELECT 
+        s.*,
+        sa.sub_admin_id AS assignedSubAdminId,
+        u.name AS assignedSubAdminName,
+        (SELECT counselling_date FROM counselling_sessions WHERE student_id = s.id ORDER BY counselling_date DESC, id DESC LIMIT 1) AS latestCounsellingDate,
+        (SELECT counsellor_name FROM counselling_sessions WHERE student_id = s.id ORDER BY counselling_date DESC, id DESC LIMIT 1) AS latestCounsellorName,
+        (SELECT COUNT(*) FROM counselling_sessions WHERE student_id = s.id) AS counsellingSessionsCount
+      FROM students s
+      LEFT JOIN student_assignments sa ON s.id = sa.student_id
+      LEFT JOIN users u ON sa.sub_admin_id = u.id
+      WHERE s.id = ?
+    `, [id]);
+
+    if (!row) {
+      return res.status(404).json({ error: 'Student not found.' });
+    }
+
+    const student = {
+      ...row,
+      strengths: JSON.parse(row.strengths || '[]'),
+      focusAreas: JSON.parse(row.focusAreas || '[]')
+    };
+    return res.json(student);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Failed to fetch student details.' });
   }
 });
 

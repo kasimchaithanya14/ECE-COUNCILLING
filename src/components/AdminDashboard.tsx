@@ -48,6 +48,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     fetchSubAdmins,
     createSubAdmin,
     updateSubAdmin,
+    toggleTeachingMethodPermission,
     resetSubAdminPassword,
     deleteSubAdmin,
     auditLogs,
@@ -162,12 +163,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
   const [viewingStudentProfile, setViewingStudentProfile] = useState<Student | null>(null);
   const [counsellingHistory, setCounsellingHistory] = useState<CounsellingSession[]>([]);
 
-  // Filters for student directory
+  // Filters for student directory & counselling
   const [filterYear, setFilterYear] = useState('All');
   const [filterSemester, setFilterSemester] = useState('All');
   const [filterSection, setFilterSection] = useState('All');
   const [filterAcademicStatus, setFilterAcademicStatus] = useState('All');
   const [filterBatch, setFilterBatch] = useState('All');
+  const [filterCounsellor, setFilterCounsellor] = useState('All');
+  const [filterCounsellingStatus, setFilterCounsellingStatus] = useState('All');
+  const [filterCounsellingDate, setFilterCounsellingDate] = useState('All');
   const [viewingSubAdmin, setViewingSubAdmin] = useState<AdminUser | null>(null);
 
   // Settings tab Password states
@@ -186,6 +190,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
   });
   const [superAdminResetLoading, setSuperAdminResetLoading] = useState(false);
   const [superAdminResetMsg, setSuperAdminResetMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [permUpdatingId, setPermUpdatingId] = useState<number | null>(null);
 
   // Method add/edit modal states
   const [showMethodModal, setShowMethodModal] = useState(false);
@@ -522,6 +527,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       setSuperAdminResetForm({ selectedSubAdminId: '', newPassword: '', confirmPassword: '' });
     } else {
       setSuperAdminResetMsg({ type: 'error', text: res.error || 'Failed to reset sub-admin password.' });
+    }
+  };
+
+  const handleToggleTeachingPerm = async (subAdmin: AdminUser) => {
+    const hasPerm = subAdmin.permissionsList.includes('Manage Teaching Methods');
+    const action = hasPerm ? 'revoke' : 'grant';
+    if (!confirm(`Are you sure you want to ${action} Teaching Methodology Management permissions for "${subAdmin.name}"?`)) {
+      return;
+    }
+    setPermUpdatingId(subAdmin.id);
+    const res = await toggleTeachingMethodPermission(subAdmin.id, !hasPerm);
+    setPermUpdatingId(null);
+    if (!res.success) {
+      alert(res.error || 'Failed to update permission.');
     }
   };
 
@@ -1354,7 +1373,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 />
               </div>
 
-              {hasPermission('Create Content') && (
+              {hasPermission('Manage Teaching Methods') && (
                 <button
                   onClick={openAddMethodModal}
                   className="px-4 py-2 rounded-2xl bg-dhanekula-royal text-white font-bold text-xs uppercase tracking-wider shadow-md hover:bg-dhanekula-600 btn-micro-interaction flex items-center gap-1.5 shrink-0"
@@ -1412,7 +1431,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {hasPermission('Edit Content') && (
+                            {hasPermission('Manage Teaching Methods') && (
                               <button
                                 onClick={() => openEditMethodModal(m)}
                                 className="p-1.5 text-slate-500 hover:text-dhanekula-600 dark:hover:text-dhanekula-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
@@ -1421,7 +1440,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                                 <Edit className="h-4 w-4" />
                               </button>
                             )}
-                            {hasPermission('Delete Content') && (
+                            {hasPermission('Manage Teaching Methods') && (
                               <button
                                 onClick={() => deleteMethod(m.id)}
                                 className="p-1.5 text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
@@ -1447,7 +1466,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
             </div>
 
           </div>
-        )}        {/* ==========================================
+        )}
+
+        {/* Access Restricted fallback for Methods tab */}
+        {activeAdminTab === 'methods' && !hasPermission('Manage Teaching Methods') && (
+          <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <ShieldAlert className="h-12 w-12 text-amber-500 mx-auto" />
+            <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">Access Restricted</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              You do not have authorization to view or manage innovative teaching methodologies. Only the Super Admin and explicitly authorized Sub-Admins may access this section.
+            </p>
+            <button
+              onClick={() => setActiveAdminTab('overview')}
+              className="px-5 py-2.5 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold shadow-md hover:scale-105 transition-all"
+            >
+              Return to Overview
+            </button>
+          </div>
+        )}
+
+        {/* ==========================================
             4. TAB: STUDENT COUNSELLING MANAGEMENT
             ========================================== */}
         {activeAdminTab === 'counselling' && (
@@ -1457,13 +1495,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
-                  <Users className="h-4.5 w-4.5 text-emerald-600" />
-                  <span>Student Directory & Counselling Records</span>
+                  <HeartHandshake className="h-4.5 w-4.5 text-emerald-600" />
+                  <span>{isSuperAdmin ? 'Comprehensive Student Counselling Roster' : 'Your Assigned Mentee Roster'}</span>
                 </h3>
                 <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">
                   {isSuperAdmin
-                    ? `Complete Student Directory (${adminStudents.length} Students Total) – Manage students and record counselling sessions.`
-                    : `Assigned Students Directory (${adminStudents.length} Students Assigned) – Record counselling notes for your assigned students.`}
+                    ? `Super Admin Overview: All ${adminStudents.length} students across the department with counselling timeline logs, counsellor assignments, and results.`
+                    : `Faculty Mentorship: Viewing ${adminStudents.length} students assigned specifically to your mentorship portfolio.`}
                 </p>
               </div>
 
@@ -1473,31 +1511,107 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-sm"
                 >
                   <Plus className="h-4 w-4" />
-                  Add Student
+                  Add Student Record
                 </button>
               )}
             </div>
 
-            {/* Search & Filters */}
-            <div className="flex flex-wrap items-center gap-2">
+            {/* Metrics Overview Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  {isSuperAdmin ? 'Total Students' : 'Assigned Mentees'}
+                </span>
+                <span className="text-xl font-black text-slate-900 dark:text-white mt-1 block">
+                  {adminStudents.length}
+                </span>
+              </div>
+              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider block">
+                  Counselled Students
+                </span>
+                <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1 block">
+                  {adminStudents.filter(s => (s.counsellingSessionsCount || 0) > 0).length}
+                </span>
+              </div>
+              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider block">
+                  Needs Counselling
+                </span>
+                <span className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1 block">
+                  {adminStudents.filter(s => (s.counsellingSessionsCount || 0) === 0).length}
+                </span>
+              </div>
+              <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-dhanekula-royal dark:text-dhanekula-400 font-bold uppercase tracking-wider block">
+                  {isSuperAdmin ? 'Faculty Counsellors' : 'Your Total Sessions'}
+                </span>
+                <span className="text-xl font-black text-dhanekula-royal dark:text-dhanekula-400 mt-1 block">
+                  {isSuperAdmin ? subAdmins.length : adminStudents.reduce((acc, s) => acc + (s.counsellingSessionsCount || 0), 0)}
+                </span>
+              </div>
+            </div>
+
+            {/* Search & Multi-Dimensional Filters */}
+            <div className="flex flex-wrap items-center gap-2 p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
               
               {/* Search */}
-              <div className="relative w-full sm:max-w-xs group">
+              <div className="relative flex-1 min-w-[200px] group">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 group-hover:text-emerald-600" />
                 <input
                   type="text"
                   value={studentSearch}
                   onChange={(e) => setStudentSearch(e.target.value)}
-                  placeholder="Search roll no, name, ID..."
-                  className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-full"
+                  placeholder="Search student name, roll number, ID..."
+                  className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-white w-full focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 />
               </div>
 
-              {/* Filters */}
+              {/* Counsellor Filter (Super Admin Only) */}
+              {isSuperAdmin && (
+                <select
+                  value={filterCounsellor}
+                  onChange={(e) => setFilterCounsellor(e.target.value)}
+                  className="p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200 font-bold"
+                >
+                  <option value="All">All Counsellors</option>
+                  <option value="Unassigned">Unassigned Only</option>
+                  {subAdmins.map(sa => (
+                    <option key={sa.id} value={sa.name}>
+                      Counsellor: {sa.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Counselling Status Filter */}
+              <select
+                value={filterCounsellingStatus}
+                onChange={(e) => setFilterCounsellingStatus(e.target.value)}
+                className="p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200 font-bold"
+              >
+                <option value="All">All Statuses</option>
+                <option value="Counselled">Counselled (Has Notes)</option>
+                <option value="Pending">Needs Counselling (0 Notes)</option>
+              </select>
+
+              {/* Counselling Date Filter */}
+              <select
+                value={filterCounsellingDate}
+                onChange={(e) => setFilterCounsellingDate(e.target.value)}
+                className="p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200"
+              >
+                <option value="All">All Session Dates</option>
+                <option value="Last 7 Days">Last 7 Days</option>
+                <option value="Last 30 Days">Last 30 Days</option>
+                <option value="This Year">This Year</option>
+              </select>
+
+              {/* Batch Filter */}
               <select
                 value={filterBatch}
                 onChange={(e) => setFilterBatch(e.target.value)}
-                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold"
+                className="p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200 font-medium"
               >
                 <option value="All">All Batches</option>
                 <option value="2022 - 2026">2022 - 2026</option>
@@ -1507,10 +1621,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 <option value="2026 - 2030">2026 - 2030</option>
               </select>
 
+              {/* Year Filter */}
               <select
                 value={filterYear}
                 onChange={(e) => setFilterYear(e.target.value)}
-                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                className="p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200"
               >
                 <option value="All">All Years</option>
                 <option value="1st Year">1st Year</option>
@@ -1519,23 +1634,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 <option value="4th Year">4th Year</option>
               </select>
 
-              <select
-                value={filterSection}
-                onChange={(e) => setFilterSection(e.target.value)}
-                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-              >
-                <option value="All">All Sections</option>
-                <option value="A">Sec A</option>
-                <option value="B">Sec B</option>
-                <option value="C">Sec C</option>
-              </select>
-
+              {/* Academic Status Filter */}
               <select
                 value={filterAcademicStatus}
                 onChange={(e) => setFilterAcademicStatus(e.target.value)}
-                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                className="p-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200"
               >
-                <option value="All">All Statuses</option>
+                <option value="All">All Performance Statuses</option>
                 <option value="Regular">Regular</option>
                 <option value="Condonation">Condonation</option>
                 <option value="Detained">Detained</option>
@@ -1543,122 +1648,229 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
 
             </div>
 
-            {/* Students List Table */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    <tr>
-                      <th className="px-6 py-4">Student</th>
-                      <th className="px-6 py-4">Roll Number / ID</th>
-                      <th className="px-6 py-4">Department & Class</th>
-                      <th className="px-6 py-4">Stats (GPA / Att.)</th>
-                      <th className="px-6 py-4">Academic Status</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
-                    {adminStudents.filter(s => {
-                      const matchesSearch = s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                                            s.rollNumber.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                                            (s.id && s.id.toLowerCase().includes(studentSearch.toLowerCase())) ||
-                                            (s.email && s.email.toLowerCase().includes(studentSearch.toLowerCase()));
-                      const matchesYear = filterYear === 'All' || s.year === filterYear;
-                      const matchesSec = filterSection === 'All' || s.section === filterSection;
-                      const matchesStatus = filterAcademicStatus === 'All' || s.academicStatus === filterAcademicStatus;
-                      const matchesBatch = filterBatch === 'All' || s.batch === filterBatch;
-                      return matchesSearch && matchesYear && matchesSec && matchesStatus && matchesBatch;
-                    }).map((stu) => (
-                      <tr key={stu.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="font-bold text-slate-900 dark:text-white block">{stu.name}</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">{stu.email}</span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200 block">{stu.rollNumber}</span>
-                          <span className="text-[10px] text-slate-400 font-mono block">{stu.id}</span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-slate-650 dark:text-slate-350">
-                          <div className="font-bold text-slate-900 dark:text-white">{stu.department || 'ECE'} – {stu.year || '3rd Year'}</div>
-                          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Sec {stu.section || 'A'} • Batch: {stu.batch || '2023 - 2027'}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-800 dark:text-slate-200">CGPA: {stu.gpa} / 10</span>
-                            <span className="text-[10px] text-slate-400">Attendance: {stu.attendance}%</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${
-                            stu.academicStatus === 'Regular'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              : stu.academicStatus === 'Condonation'
-                              ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300'
-                              : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
-                          }`}>
-                            {stu.academicStatus || 'Regular'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            
-                            {/* View details */}
-                            <button
-                              onClick={() => handleViewProfile(stu)}
-                              className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                              title="View Student Profile & Counselling Logs"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-
-                            {/* Record Session shortcut */}
-                            {hasPermission('Manage Counselling') && (
-                              <button
-                                onClick={() => openAddCounsellingModal(stu)}
-                                className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                title="Add Counselling Record"
-                              >
-                                <HeartHandshake className="h-4 w-4" />
-                              </button>
-                            )}
-
-                            {/* Edit student details */}
-                            {hasPermission('Manage Students') && (
-                              <button
-                                onClick={() => openEditStudentModal(stu)}
-                                className="p-1.5 text-slate-500 hover:text-dhanekula-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                title="Edit Student Info"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </button>
-                            )}
-
-                            {/* Delete student details */}
-                            {hasPermission('Manage Students') && (
-                              <button
-                                onClick={() => handleDeleteStudent(stu)}
-                                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                title="Archive Student Record"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {adminStudents.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-slate-450 italic">
-                          No student records have been created yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+            {/* Students List Table or Empty State */}
+            {adminStudents.length === 0 && !isSuperAdmin ? (
+              <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="h-16 w-16 rounded-full bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-400">
+                  <HeartHandshake className="h-8 w-8" />
+                </div>
+                <div className="space-y-1 max-w-md mx-auto">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                    No Students Currently Assigned
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    You currently have no students assigned to your counselling roster. The Super Admin assigns students to faculty counsellors. Please reach out to your department Super Admin to receive your mentee cohort.
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th className="px-5 py-4">Student</th>
+                        <th className="px-5 py-4">Roll Number / ID</th>
+                        <th className="px-5 py-4">{isSuperAdmin ? 'Assigned Counsellor' : 'Mentorship'}</th>
+                        <th className="px-5 py-4">Latest Counselling</th>
+                        <th className="px-5 py-4">Sessions</th>
+                        <th className="px-5 py-4">Results & Stats</th>
+                        <th className="px-5 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                      {adminStudents.filter(s => {
+                        const matchesSearch = s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                                              s.rollNumber.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                                              (s.id && s.id.toLowerCase().includes(studentSearch.toLowerCase())) ||
+                                              (s.email && s.email.toLowerCase().includes(studentSearch.toLowerCase()));
+                        const matchesYear = filterYear === 'All' || s.year === filterYear;
+                        const matchesSec = filterSection === 'All' || s.section === filterSection;
+                        const matchesStatus = filterAcademicStatus === 'All' || s.academicStatus === filterAcademicStatus;
+                        const matchesBatch = filterBatch === 'All' || s.batch === filterBatch;
+
+                        // Counsellor filter (Super Admin)
+                        let matchesCounsellor = true;
+                        if (isSuperAdmin && filterCounsellor !== 'All') {
+                          if (filterCounsellor === 'Unassigned') {
+                            matchesCounsellor = !s.assignedSubAdminId && !s.assignedSubAdminName;
+                          } else {
+                            matchesCounsellor = s.assignedSubAdminName === filterCounsellor || s.assignedSubAdminId?.toString() === filterCounsellor;
+                          }
+                        }
+
+                        // Counselling status filter
+                        let matchesCounsellingStatus = true;
+                        if (filterCounsellingStatus === 'Counselled') {
+                          matchesCounsellingStatus = (s.counsellingSessionsCount || 0) > 0;
+                        } else if (filterCounsellingStatus === 'Pending') {
+                          matchesCounsellingStatus = (s.counsellingSessionsCount || 0) === 0;
+                        }
+
+                        // Counselling Date filter
+                        let matchesCounsellingDate = true;
+                        if (filterCounsellingDate !== 'All') {
+                          if (!s.latestCounsellingDate) {
+                            matchesCounsellingDate = false;
+                          } else {
+                            const sessionDate = new Date(s.latestCounsellingDate);
+                            const now = new Date();
+                            if (filterCounsellingDate === 'Last 7 Days') {
+                              const diffDays = (now.getTime() - sessionDate.getTime()) / (1000 * 3600 * 24);
+                              matchesCounsellingDate = diffDays <= 7;
+                            } else if (filterCounsellingDate === 'Last 30 Days') {
+                              const diffDays = (now.getTime() - sessionDate.getTime()) / (1000 * 3600 * 24);
+                              matchesCounsellingDate = diffDays <= 30;
+                            } else if (filterCounsellingDate === 'This Year') {
+                              matchesCounsellingDate = sessionDate.getFullYear() === now.getFullYear();
+                            }
+                          }
+                        }
+
+                        return matchesSearch && matchesYear && matchesSec && matchesStatus && matchesBatch && matchesCounsellor && matchesCounsellingStatus && matchesCounsellingDate;
+                      }).map((stu) => {
+                        const hasSessions = (stu.counsellingSessionsCount || 0) > 0;
+                        return (
+                          <tr key={stu.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                            
+                            {/* Student Name */}
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2.5">
+                                <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-bold text-xs">
+                                  {getInitials(stu.name)}
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-900 dark:text-white block">{stu.name}</span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">{stu.email} • Batch {stu.batch || '2023 - 2027'}</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Roll Number / Student ID */}
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 block">{stu.rollNumber}</span>
+                              <span className="text-[10px] text-slate-400 font-mono block">ID: {stu.id}</span>
+                            </td>
+
+                            {/* Assigned Counsellor */}
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              {stu.assignedSubAdminName ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-dhanekula-50 text-dhanekula-royal dark:bg-dhanekula-950 dark:text-dhanekula-300 border border-dhanekula-200 dark:border-dhanekula-800">
+                                  <Users className="h-3 w-3" />
+                                  {stu.assignedSubAdminName}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                                  Unassigned
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Latest Counselling Date & Counsellor */}
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              {stu.latestCounsellingDate ? (
+                                <div>
+                                  <span className="font-mono font-bold text-slate-900 dark:text-white block">{stu.latestCounsellingDate}</span>
+                                  <span className="text-[10px] text-slate-400 block mt-0.5">By {stu.latestCounsellorName || 'Faculty Counsellor'}</span>
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                  No sessions yet
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Sessions Count */}
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                hasSessions
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                              }`}>
+                                {stu.counsellingSessionsCount || 0} {stu.counsellingSessionsCount === 1 ? 'Session' : 'Sessions'}
+                              </span>
+                            </td>
+
+                            {/* Results & Stats */}
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200">CGPA: {stu.gpa} / 10</span>
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase ${
+                                    stu.academicStatus === 'Regular'
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950'
+                                      : 'bg-red-50 text-red-700 dark:bg-red-950'
+                                  }`}>
+                                    {stu.academicStatus || 'Regular'}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-slate-400">Att: {stu.attendance}% • {stu.year || '3rd Year'} (Sec {stu.section || 'A'})</span>
+                              </div>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-5 py-4 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                
+                                {/* View details */}
+                                <button
+                                  onClick={() => handleViewProfile(stu)}
+                                  className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                  title="View Student Profile & Counselling History Timeline"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+
+                                {/* Record Session shortcut */}
+                                {hasPermission('Manage Counselling') && (
+                                  <button
+                                    onClick={() => openAddCounsellingModal(stu)}
+                                    className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Record Counselling Note"
+                                  >
+                                    <HeartHandshake className="h-4 w-4" />
+                                  </button>
+                                )}
+
+                                {/* Edit student details */}
+                                {hasPermission('Manage Students') && (
+                                  <button
+                                    onClick={() => openEditStudentModal(stu)}
+                                    className="p-1.5 text-slate-500 hover:text-dhanekula-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Edit Student Info"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
+                                )}
+
+                                {/* Delete student details */}
+                                {hasPermission('Manage Students') && (
+                                  <button
+                                    onClick={() => handleDeleteStudent(stu)}
+                                    className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Archive Student Record"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {adminStudents.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-8 text-center text-slate-450 italic">
+                            No student records match your search or filter criteria.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
@@ -2108,6 +2320,99 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 </button>
               </form>
             </div>
+
+            {/* Super Admin Teaching Methodology Permissions Management */}
+            {isSuperAdmin && (
+              <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-xs">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-4.5 w-4.5 text-dhanekula-royal" />
+                  <div>
+                    <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                      Teaching Methodology Management Permissions
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Super Admin Control: Select which sub-admin accounts are authorized to add, edit, and delete teaching methodologies.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th className="px-4 py-3">Sub-Admin Account</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Teaching Methods Access</th>
+                        <th className="px-4 py-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                      {subAdmins.map((sa) => {
+                        const hasPerm = sa.permissionsList.includes('Manage Teaching Methods');
+                        const isUpdating = permUpdatingId === sa.id;
+                        return (
+                          <tr key={sa.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="flex items-center gap-2.5">
+                                <div className="h-7 w-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px]">
+                                  {getInitials(sa.name)}
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-900 dark:text-white block">{sa.name}</span>
+                                  <span className="text-[10px] text-slate-400">@{sa.username} • {sa.email}</span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                sa.status === 'Active'
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                                  : 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-400'
+                              }`}>
+                                {sa.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {hasPerm ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                  <Check className="h-3 w-3" />
+                                  Authorized (Can Manage)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                                  <Lock className="h-3 w-3" />
+                                  Restricted (Read-Only / No Access)
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-right">
+                              <button
+                                onClick={() => handleToggleTeachingPerm(sa)}
+                                disabled={isUpdating}
+                                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-xs disabled:opacity-50 ${
+                                  hasPerm
+                                    ? 'bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
+                                }`}
+                              >
+                                {isUpdating ? 'Updating...' : hasPerm ? 'Revoke Permission' : 'Grant Permission'}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {subAdmins.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-6 text-center text-slate-400 italic">
+                            No Sub-Admin accounts registered.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Super Admin Password Reset Tool for Sub-Admins */}
             {isSuperAdmin && (
@@ -3522,6 +3827,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                     <strong>F:</strong> {viewingStudentProfile.focusAreas?.join(', ') || 'None'}
                   </span>
                 </div>
+              </div>
+
+              {/* Assigned Counsellor Banner */}
+              <div className="p-3 bg-dhanekula-50/60 dark:bg-dhanekula-950/40 rounded-2xl border border-dhanekula-200/50 dark:border-dhanekula-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <HeartHandshake className="h-4 w-4 text-dhanekula-royal dark:text-dhanekula-400" />
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Designated Faculty Counsellor</span>
+                    <span className="font-bold text-slate-900 dark:text-white text-xs">
+                      {viewingStudentProfile.assignedSubAdminName ? `${viewingStudentProfile.assignedSubAdminName} (Faculty Mentor)` : 'Unassigned (No faculty counsellor allotted yet)'}
+                    </span>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                  {counsellingHistory.length} Total {counsellingHistory.length === 1 ? 'Session' : 'Sessions'}
+                </span>
               </div>
 
               {viewingStudentProfile.notes && (

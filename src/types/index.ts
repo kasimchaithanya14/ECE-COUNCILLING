@@ -76,6 +76,11 @@ export interface Student {
   parentName?: string;
   notes?: string;
   batch?: string;
+  assignedSubAdminId?: number;
+  assignedSubAdminName?: string;
+  latestCounsellingDate?: string;
+  latestCounsellorName?: string;
+  counsellingSessionsCount?: number;
 }
 
 export interface QuizQuestion {

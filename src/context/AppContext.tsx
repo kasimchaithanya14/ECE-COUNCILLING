@@ -45,8 +45,6 @@ interface AppContextType {
   setIsAITutorOpen: (open: boolean) => void;
   isDailyQuizOpen: boolean;
   setIsDailyQuizOpen: (open: boolean) => void;
-  isFacultyEditModalOpen: boolean;
-  setIsFacultyEditModalOpen: (open: boolean) => void;
   editingMethod: TeachingMethod | null;
   setEditingMethod: (method: TeachingMethod | null) => void;
   
@@ -69,6 +67,7 @@ interface AppContextType {
   fetchSubAdmins: () => Promise<void>;
   createSubAdmin: (data: any) => Promise<{ success: boolean; error?: string }>;
   updateSubAdmin: (id: number, data: any) => Promise<{ success: boolean; error?: string }>;
+  toggleTeachingMethodPermission: (id: number, granted: boolean) => Promise<{ success: boolean; error?: string }>;
   resetSubAdminPassword: (id: number, data: any) => Promise<{ success: boolean; error?: string }>;
   deleteSubAdmin: (id: number) => Promise<{ success: boolean; error?: string }>;
   fetchAuditLogs: () => Promise<void>;
@@ -136,7 +135,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [viewingResource, setViewingResource] = useState<CoursewareResource | null>(null);
   const [isAITutorOpen, setIsAITutorOpen] = useState(false);
   const [isDailyQuizOpen, setIsDailyQuizOpen] = useState(false);
-  const [isFacultyEditModalOpen, setIsFacultyEditModalOpen] = useState(false);
   const [editingMethod, setEditingMethod] = useState<TeachingMethod | null>(null);
 
   // Toast Function
@@ -555,6 +553,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const toggleTeachingMethodPermission = async (id: number, granted: boolean) => {
+    try {
+      const res = await fetch(`/api/admin/sub-admins/${id}/permissions/teaching-methods`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ granted }),
+        credentials: 'include'
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        return { success: false, error: body.error || 'Failed to update permission.' };
+      }
+      showToast(body.message || (granted ? 'Permission granted.' : 'Permission revoked.'));
+      await fetchSubAdmins();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: 'Network error.' };
+    }
+  };
+
   const resetSubAdminPassword = async (id: number, data: any) => {
     try {
       const res = await fetch(`/api/admin/sub-admins/${id}/reset-password`, {
@@ -940,8 +958,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAITutorOpen,
         isDailyQuizOpen,
         setIsDailyQuizOpen,
-        isFacultyEditModalOpen,
-        setIsFacultyEditModalOpen,
         editingMethod,
         setEditingMethod,
         toastMessage,
@@ -960,6 +976,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetchSubAdmins,
         createSubAdmin,
         updateSubAdmin,
+        toggleTeachingMethodPermission,
         resetSubAdminPassword,
         deleteSubAdmin,
         fetchAuditLogs,

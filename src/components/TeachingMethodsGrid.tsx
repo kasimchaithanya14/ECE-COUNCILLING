@@ -3,23 +3,16 @@ import { useApp } from '../context/AppContext';
 import {
   BookOpen,
   Target,
-  Edit,
-  Trash2,
-  Plus,
   ArrowUpRight,
   Layers
 } from 'lucide-react';
 
 export const TeachingMethodsGrid: React.FC = () => {
   const {
-    role,
     teachingMethods,
     activeCohort,
     searchQuery,
-    setSelectedMethod,
-    setEditingMethod,
-    setIsFacultyEditModalOpen,
-    deleteMethod,
+    setSelectedMethod
   } = useApp();
 
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -46,11 +39,6 @@ export const TeachingMethodsGrid: React.FC = () => {
     return matchesCohort && matchesCategory && matchesSearch;
   });
 
-  const handleAddNewMethod = () => {
-    setEditingMethod(null);
-    setIsFacultyEditModalOpen(true);
-  };
-
   return (
     <div className="space-y-6 animate-slide-up-delay-2">
       
@@ -65,17 +53,6 @@ export const TeachingMethodsGrid: React.FC = () => {
             Click any teaching method card to view detailed implementation workflow and expected outcomes.
           </p>
         </div>
-
-        {/* Faculty Add New Method Button */}
-        {role === 'faculty' && (
-          <button
-            onClick={handleAddNewMethod}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-dhanekula-navy hover:bg-dhanekula-royal text-white font-bold text-xs shadow-md hover:scale-105 active:scale-95 transition-all duration-300 shrink-0"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add New Teaching Method</span>
-          </button>
-        )}
       </div>
 
       {/* Category Pills */}
@@ -122,7 +99,7 @@ export const TeachingMethodsGrid: React.FC = () => {
 
                 <div className="space-y-4 pt-1">
                   
-                  {/* Top Badge & Actions */}
+                  {/* Top Badge */}
                   <div className="flex items-start justify-between gap-2">
                     <span
                       className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -133,34 +110,6 @@ export const TeachingMethodsGrid: React.FC = () => {
                     >
                       {method.cohort} ({isGroupA ? 'ALC' : 'FLC'})
                     </span>
-
-                    {/* Faculty Action Icons */}
-                    {role === 'faculty' && (
-                      <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => {
-                            setEditingMethod(method);
-                            setIsFacultyEditModalOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-dhanekula-royal hover:bg-dhanekula-50 dark:hover:bg-slate-800 transition-colors"
-                          title="Edit Implementation / Expected Outcome"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            if (confirm(`Delete method "${method.name}"?`)) {
-                              deleteMethod(method.id);
-                            }
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
-                          title="Delete Method"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    )}
                   </div>
 
                   {/* Method Name */}
