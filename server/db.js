@@ -135,7 +135,7 @@ export const initDb = async () => {
       name TEXT NOT NULL,
       rollNumber TEXT NOT NULL UNIQUE,
       email TEXT NOT NULL UNIQUE,
-      cohort TEXT NOT NULL,
+      cohort TEXT DEFAULT NULL,
       gpa REAL NOT NULL,
       attendance REAL NOT NULL,
       strengths TEXT NOT NULL,

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { TeachingMethod, WeeklyActivity, CoursewareResource, Student, UserRole, CohortType, AdminUser, AuditLog, MediaSubmission, CounsellingSession, PublicCounsellingUpdate } from '../types';
+import { TeachingMethod, WeeklyActivity, CoursewareResource, Student, UserRole, CohortType, AdminUser, AuditLog, MediaSubmission, CounsellingSession } from '../types';
 import {
   INITIAL_TEACHING_METHODS,
   INITIAL_WEEKLY_PLAN,
@@ -65,6 +65,7 @@ interface AppContextType {
   auditLogs: AuditLog[];
   adminLogin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   adminLogout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<{ success: boolean; error?: string }>;
   fetchSubAdmins: () => Promise<void>;
   createSubAdmin: (data: any) => Promise<{ success: boolean; error?: string }>;
   updateSubAdmin: (id: number, data: any) => Promise<{ success: boolean; error?: string }>;
@@ -79,20 +80,15 @@ interface AppContextType {
   deleteSubmission: (id: number) => Promise<{ success: boolean; error?: string }>;
   submitMedia: (formData: FormData) => Promise<{ success: boolean; message?: string; error?: string }>;
   fetchApprovedMedia: (methodId: string) => Promise<MediaSubmission[]>;
-  publicCounsellingUpdates: PublicCounsellingUpdate[];
   adminStudents: Student[];
-  publishedCounsellingList: CounsellingSession[];
   fetchAdminStudents: () => Promise<void>;
-  addStudent: (data: any) => Promise<{ success: boolean; error?: string; studentId?: string }>;
+  addStudent: (data: any) => Promise<{ success: boolean; error?: string; studentId?: string; duplicate?: boolean; existingStudentId?: string }>;
   updateStudent: (id: string, data: any) => Promise<{ success: boolean; error?: string }>;
   deleteStudent: (id: string) => Promise<{ success: boolean; error?: string }>;
   fetchCounsellingHistory: (studentId: string) => Promise<CounsellingSession[]>;
   addCounsellingSession: (studentId: string, data: any) => Promise<{ success: boolean; error?: string }>;
   updateCounsellingSession: (sessionId: number, data: any) => Promise<{ success: boolean; error?: string }>;
   deleteCounsellingSession: (sessionId: number) => Promise<{ success: boolean; error?: string }>;
-  publishCounsellingUpdate: (sessionId: number, data: any) => Promise<{ success: boolean; error?: string }>;
-  fetchPublishedCounsellingList: () => Promise<void>;
-  fetchPublicCounsellingUpdates: () => Promise<void>;
   assignments: any[];
   assignmentHistory: any[];
   fetchAssignments: () => Promise<void>;
@@ -131,9 +127,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [subAdmins, setSubAdmins] = useState<AdminUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [mediaSubmissions, setMediaSubmissions] = useState<MediaSubmission[]>([]);
-  const [publicCounsellingUpdates, setPublicCounsellingUpdates] = useState<PublicCounsellingUpdate[]>([]);
   const [adminStudents, setAdminStudents] = useState<Student[]>([]);
-  const [publishedCounsellingList, setPublishedCounsellingList] = useState<CounsellingSession[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<any[]>([]);
 
@@ -163,8 +157,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const schedData = await schedRes.json();
         const resRes = await fetch('/api/resources');
         const resData = await resRes.json();
-        const studRes = await fetch('/api/students');
-        const studData = await studRes.json();
+        const studRes = await fetch('/api/students', { credentials: 'include' });
+        const studData = studRes.ok ? await studRes.json() : [];
 
         setTeachingMethods(methodsData);
         setWeeklyPlan(schedData);
@@ -197,7 +191,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const initSession = async () => {
       await syncData();
-      await fetchPublicCounsellingUpdates();
       try {
         const meRes = await fetch('/api/auth/me', { credentials: 'include' });
         if (meRes.ok) {
@@ -491,6 +484,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Logged out securely.');
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string, confirmPassword: string) => {
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Failed to change password.' };
+      }
+      showToast('Your password has been changed successfully.');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: 'Network error. Failed to change password.' };
+    }
+  };
+
   const fetchSubAdmins = async () => {
     try {
       const res = await fetch('/api/admin/sub-admins', { credentials: 'include' });
@@ -711,7 +723,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const resData = await res.json();
       if (!res.ok) {
-        return { success: false, error: resData.error || 'Failed to create student.' };
+        return {
+          success: false,
+          error: resData.error || 'Failed to create student.',
+          duplicate: !!resData.duplicate,
+          existingStudentId: resData.existingStudentId
+        };
       }
       showToast(`Created student: "${data.name}"`);
       await fetchAdminStudents();
@@ -784,8 +801,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, error: resData.error || 'Failed to record session.' };
       }
       showToast(`Counselling session recorded.`);
-      await fetchPublishedCounsellingList();
-      await fetchPublicCounsellingUpdates();
       return { success: true };
     } catch (err) {
       return { success: false, error: 'Network error.' };
@@ -805,8 +820,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, error: resData.error || 'Failed to update session.' };
       }
       showToast(`Counselling session updated.`);
-      await fetchPublishedCounsellingList();
-      await fetchPublicCounsellingUpdates();
       return { success: true };
     } catch (err) {
       return { success: false, error: 'Network error.' };
@@ -824,56 +837,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return { success: false, error: resData.error || 'Failed to delete session.' };
       }
       showToast(`Counselling session deleted.`);
-      await fetchPublishedCounsellingList();
-      await fetchPublicCounsellingUpdates();
       return { success: true };
     } catch (err) {
       return { success: false, error: 'Network error.' };
-    }
-  };
-
-  const publishCounsellingUpdate = async (sessionId: number, data: any) => {
-    try {
-      const res = await fetch(`/api/admin/counselling/${sessionId}/publish`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-        credentials: 'include'
-      });
-      const resData = await res.json();
-      if (!res.ok) {
-        return { success: false, error: resData.error || 'Failed to change publication status.' };
-      }
-      showToast(`Publication status updated.`);
-      await fetchPublishedCounsellingList();
-      await fetchPublicCounsellingUpdates();
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: 'Network error.' };
-    }
-  };
-
-  const fetchPublishedCounsellingList = async () => {
-    try {
-      const res = await fetch('/api/admin/published-counselling', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setPublishedCounsellingList(data);
-      }
-    } catch (err) {
-      console.error('Error fetching published counselling list:', err);
-    }
-  };
-
-  const fetchPublicCounsellingUpdates = async () => {
-    try {
-      const res = await fetch('/api/public/counselling');
-      if (res.ok) {
-        const data = await res.json();
-        setPublicCounsellingUpdates(data);
-      }
-    } catch (err) {
-      console.error('Error fetching public counselling updates:', err);
     }
   };
 
@@ -990,6 +956,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditLogs,
         adminLogin,
         adminLogout,
+        changePassword,
         fetchSubAdmins,
         createSubAdmin,
         updateSubAdmin,
@@ -1004,9 +971,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteSubmission,
         submitMedia,
         fetchApprovedMedia,
-        publicCounsellingUpdates,
         adminStudents,
-        publishedCounsellingList,
         fetchAdminStudents,
         addStudent,
         updateStudent,
@@ -1015,9 +980,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addCounsellingSession,
         updateCounsellingSession,
         deleteCounsellingSession,
-        publishCounsellingUpdate,
-        fetchPublishedCounsellingList,
-        fetchPublicCounsellingUpdates,
         assignments,
         assignmentHistory,
         fetchAssignments,

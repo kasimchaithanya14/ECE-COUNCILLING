@@ -29,7 +29,10 @@ import {
   FileDown,
   Image,
   Download,
-  HeartHandshake
+  HeartHandshake,
+  Key,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -59,7 +62,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     addResource,
     deleteResource,
     students,
-    updateStudentCohort,
     theme,
     toggleTheme,
     showToast,
@@ -71,7 +73,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     deleteSubmission,
     // Student Counselling
     adminStudents,
-    publishedCounsellingList,
     fetchAdminStudents,
     addStudent,
     updateStudent,
@@ -80,8 +81,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     addCounsellingSession,
     updateCounsellingSession,
     deleteCounsellingSession,
-    publishCounsellingUpdate,
-    fetchPublishedCounsellingList
+    changePassword
   } = useApp();
 
   const isSuperAdmin = adminUser?.role === 'SUPER_ADMIN';
@@ -110,6 +110,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
 
   // Student Form states
   const [showStudentFormModal, setShowStudentFormModal] = useState(false);
+  const [duplicateAlert, setDuplicateAlert] = useState<{
+    message: string;
+    existingStudentId?: string;
+  } | null>(null);
   const [createdStudentDetails, setCreatedStudentDetails] = useState<{
     name: string;
     studentId: string;
@@ -118,10 +122,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
   } | null>(null);
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null); // null means adding new
   const [studentForm, setStudentForm] = useState({
+    studentId: '',
     name: '',
     rollNumber: '',
     email: '',
-    cohort: 'Group A' as 'Group A' | 'Group B',
     gpa: 0,
     attendance: 100,
     strengths: '',
@@ -151,28 +155,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     action_items: '',
     follow_up_date: '',
     follow_up_required: 'No' as 'Yes' | 'No',
-    status: 'Completed' as 'Draft' | 'Completed' | 'Follow-Up Required',
-    publish_to_home: 0,
-    allow_student_name_public: 0,
-    public_title: '',
-    public_summary: ''
+    status: 'Completed' as 'Draft' | 'Completed' | 'Follow-Up Required'
   });
 
   // Detailed profile view state
   const [viewingStudentProfile, setViewingStudentProfile] = useState<Student | null>(null);
   const [counsellingHistory, setCounsellingHistory] = useState<CounsellingSession[]>([]);
 
-  // Sub-navigation inside counselling tab
-  const [counsellingSubTab, setCounsellingSubTab] = useState<'students' | 'updates'>('students');
-
   // Filters for student directory
   const [filterYear, setFilterYear] = useState('All');
   const [filterSemester, setFilterSemester] = useState('All');
   const [filterSection, setFilterSection] = useState('All');
-  const [filterCohortStatus, setFilterCohortStatus] = useState('All');
   const [filterAcademicStatus, setFilterAcademicStatus] = useState('All');
   const [filterBatch, setFilterBatch] = useState('All');
   const [viewingSubAdmin, setViewingSubAdmin] = useState<AdminUser | null>(null);
+
+  // Settings tab Password states
+  const [changePassForm, setChangePassForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [changePassLoading, setChangePassLoading] = useState(false);
+  const [changePassMsg, setChangePassMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [superAdminResetForm, setSuperAdminResetForm] = useState({
+    selectedSubAdminId: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [superAdminResetLoading, setSuperAdminResetLoading] = useState(false);
+  const [superAdminResetMsg, setSuperAdminResetMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Method add/edit modal states
   const [showMethodModal, setShowMethodModal] = useState(false);
@@ -252,7 +265,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     }
     if (activeAdminTab === 'counselling') {
       fetchAdminStudents();
-      fetchPublishedCounsellingList();
     }
   }, [activeAdminTab]);
 
@@ -267,11 +279,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
   // Student Counselling handlers
   const openAddStudentModal = () => {
     setEditingStudentId(null);
+    setDuplicateAlert(null);
     setStudentForm({
+      studentId: '',
       name: '',
       rollNumber: '',
       email: '',
-      cohort: 'Group A',
       gpa: 0,
       attendance: 100,
       strengths: '',
@@ -291,15 +304,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
 
   const openEditStudentModal = (stu: Student) => {
     setEditingStudentId(stu.id);
+    setDuplicateAlert(null);
     setStudentForm({
+      studentId: stu.id,
       name: stu.name,
       rollNumber: stu.rollNumber,
       email: stu.email || '',
-      cohort: stu.cohort,
       gpa: stu.gpa,
       attendance: stu.attendance,
-      strengths: stu.strengths.join(', '),
-      focusAreas: stu.focusAreas.join(', '),
+      strengths: stu.strengths ? stu.strengths.join(', ') : '',
+      focusAreas: stu.focusAreas ? stu.focusAreas.join(', ') : '',
       department: stu.department || 'ECE',
       year: stu.year || '3rd Year',
       semester: stu.semester || '1st Sem',
@@ -321,6 +335,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       alert("Please select a student batch.");
       return;
     }
+    setDuplicateAlert(null);
     setIsSavingStudent(true);
     const strengthsArr = studentForm.strengths.split(',').map(s => s.trim()).filter(s => s !== '');
     const focusAreasArr = studentForm.focusAreas.split(',').map(s => s.trim()).filter(s => s !== '');
@@ -330,7 +345,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       focusAreas: focusAreasArr
     };
 
-    let result;
+    let result: any;
     if (editingStudentId) {
       result = await updateStudent(editingStudentId, payload);
     } else {
@@ -341,15 +356,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     if (result.success) {
       setShowStudentFormModal(false);
       fetchAdminStudents();
-      const addResult = result as { success: boolean; error?: string; studentId?: string };
-      if (!editingStudentId && addResult.studentId) {
+      if (!editingStudentId && result.studentId) {
         setCreatedStudentDetails({
           name: studentForm.name,
-          studentId: addResult.studentId,
+          studentId: result.studentId,
           rollNumber: studentForm.rollNumber,
           batch: studentForm.batch
         });
       }
+    } else if (result.duplicate) {
+      setDuplicateAlert({
+        message: result.error || 'A student with this Student ID or Roll Number already exists in the system.',
+        existingStudentId: result.existingStudentId
+      });
     } else {
       alert(result.error || 'Failed to save student.');
     }
@@ -379,11 +398,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       action_items: '',
       follow_up_date: '',
       follow_up_required: 'No',
-      status: 'Completed',
-      publish_to_home: 0,
-      allow_student_name_public: 0,
-      public_title: '',
-      public_summary: ''
+      status: 'Completed'
     });
     setShowCounsellingFormModal(true);
   };
@@ -401,23 +416,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       action_items: session.action_items || '',
       follow_up_date: session.follow_up_date || '',
       follow_up_required: session.follow_up_required,
-      status: session.status,
-      publish_to_home: session.publish_to_home,
-      allow_student_name_public: session.allow_student_name_public,
-      public_title: session.public_title || '',
-      public_summary: session.public_summary || ''
+      status: session.status
     });
     setShowCounsellingFormModal(true);
   };
 
   const handleCounsellingFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (counsellingForm.publish_to_home === 1 && (!counsellingForm.public_title || !counsellingForm.public_summary)) {
-      alert('Public Summary Title and Safe Summary are required when publishing to the homepage.');
+    if (!counsellingForm.counselling_date || !counsellingForm.type || !counsellingForm.private_notes) {
+      alert('Counselling Date, Counselling Category, and Discussion Notes are required.');
       return;
     }
 
-    let result;
+    let result: any;
     if (editingSessionId) {
       result = await updateCounsellingSession(editingSessionId, counsellingForm);
     } else {
@@ -435,9 +446,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
         const history = await fetchCounsellingHistory(counsellingStudentId);
         setCounsellingHistory(history);
       }
-      fetchPublishedCounsellingList();
     } else {
-      alert(result.error || 'Failed to save session.');
+      alert(result.error || 'Failed to save counselling session.');
     }
   };
 
@@ -449,10 +459,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
           const history = await fetchCounsellingHistory(studentIdForReload);
           setCounsellingHistory(history);
         }
-        fetchPublishedCounsellingList();
       } else {
         alert(result.error);
       }
+    }
+  };
+
+  // Password Management Handlers for Settings Tab
+  const handleChangeMyPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setChangePassMsg(null);
+    if (!changePassForm.currentPassword || !changePassForm.newPassword || !changePassForm.confirmPassword) {
+      setChangePassMsg({ type: 'error', text: 'All fields are required.' });
+      return;
+    }
+    if (changePassForm.newPassword.length < 6) {
+      setChangePassMsg({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (changePassForm.newPassword !== changePassForm.confirmPassword) {
+      setChangePassMsg({ type: 'error', text: 'New passwords do not match.' });
+      return;
+    }
+    setChangePassLoading(true);
+    const res = await changePassword(changePassForm.currentPassword, changePassForm.newPassword, changePassForm.confirmPassword);
+    setChangePassLoading(false);
+    if (res.success) {
+      setChangePassMsg({ type: 'success', text: 'Your password has been changed successfully.' });
+      setChangePassForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } else {
+      setChangePassMsg({ type: 'error', text: res.error || 'Failed to change password.' });
+    }
+  };
+
+  const handleSuperAdminResetSubAdminPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSuperAdminResetMsg(null);
+    if (!superAdminResetForm.selectedSubAdminId) {
+      setSuperAdminResetMsg({ type: 'error', text: 'Please select a sub-admin from the list.' });
+      return;
+    }
+    if (superAdminResetForm.newPassword.length < 6) {
+      setSuperAdminResetMsg({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (superAdminResetForm.newPassword !== superAdminResetForm.confirmPassword) {
+      setSuperAdminResetMsg({ type: 'error', text: 'Passwords do not match.' });
+      return;
+    }
+    setSuperAdminResetLoading(true);
+    const res = await resetSubAdminPassword(parseInt(superAdminResetForm.selectedSubAdminId, 10), {
+      newPassword: superAdminResetForm.newPassword,
+      confirmPassword: superAdminResetForm.confirmPassword
+    });
+    setSuperAdminResetLoading(false);
+    if (res.success) {
+      const target = subAdmins.find(sa => sa.id === parseInt(superAdminResetForm.selectedSubAdminId, 10));
+      setSuperAdminResetMsg({
+        type: 'success',
+        text: `Password for "${target?.name || 'Sub-Admin'}" has been reset successfully.`
+      });
+      setSuperAdminResetForm({ selectedSubAdminId: '', newPassword: '', confirmPassword: '' });
+    } else {
+      setSuperAdminResetMsg({ type: 'error', text: res.error || 'Failed to reset sub-admin password.' });
     }
   };
 
@@ -1378,358 +1447,218 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
             </div>
 
           </div>
-        )}
-
-        {/* ==========================================
+        )}        {/* ==========================================
             4. TAB: STUDENT COUNSELLING MANAGEMENT
             ========================================== */}
         {activeAdminTab === 'counselling' && (
           <div className="space-y-6 animate-fade-in text-xs">
             
-            {/* Sub-tabs header */}
-            <div className="flex border-b border-slate-200 dark:border-slate-800">
-              <button
-                onClick={() => setCounsellingSubTab('students')}
-                className={`flex items-center gap-2 px-4 py-2.5 font-bold text-xs border-b-2 transition-all ${
-                  counsellingSubTab === 'students'
-                    ? 'border-emerald-600 text-emerald-600 dark:border-emerald-450 dark:text-emerald-450'
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-                }`}
-              >
-                <Users className="h-4 w-4" />
-                <span>Student Manager Directory</span>
-              </button>
-              <button
-                onClick={() => setCounsellingSubTab('updates')}
-                className={`flex items-center gap-2 px-4 py-2.5 font-bold text-xs border-b-2 transition-all ${
-                  counsellingSubTab === 'updates'
-                    ? 'border-emerald-600 text-emerald-600 dark:border-emerald-450 dark:text-emerald-450'
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-                }`}
-              >
-                <HeartHandshake className="h-4 w-4" />
-                <span>Homepage Highlights Control</span>
-              </button>
+            {/* Header & Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+                  <Users className="h-4.5 w-4.5 text-emerald-600" />
+                  <span>Student Directory & Counselling Records</span>
+                </h3>
+                <p className="text-slate-500 dark:text-slate-400 text-[11px] mt-0.5">
+                  {isSuperAdmin
+                    ? `Complete Student Directory (${adminStudents.length} Students Total) – Manage students and record counselling sessions.`
+                    : `Assigned Students Directory (${adminStudents.length} Students Assigned) – Record counselling notes for your assigned students.`}
+                </p>
+              </div>
+
+              {hasPermission('Manage Students') && (
+                <button
+                  onClick={openAddStudentModal}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Student
+                </button>
+              )}
             </div>
 
-            {counsellingSubTab === 'students' ? (
-              /* PANEL A: STUDENT DIRECTORY MANAGER */
-              <div className="space-y-6">
-                
-                {/* Search & Filters */}
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    
-                    {/* Search */}
-                    <div className="relative w-full sm:max-w-xs group">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 group-hover:text-emerald-600" />
-                      <input
-                        type="text"
-                        value={studentSearch}
-                        onChange={(e) => setStudentSearch(e.target.value)}
-                        placeholder="Search student roll, name..."
-                        className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                      />
-                    </div>
-
-                    {/* Filters */}
-                    <select
-                      value={filterBatch}
-                      onChange={(e) => setFilterBatch(e.target.value)}
-                      className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold"
-                    >
-                      <option value="All">All Batches</option>
-                      <option value="2022 - 2026">2022 - 2026</option>
-                      <option value="2023 - 2027">2023 - 2027</option>
-                      <option value="2024 - 2028">2024 - 2028</option>
-                      <option value="2025 - 2029">2025 - 2029</option>
-                      <option value="2026 - 2030">2026 - 2030</option>
-                    </select>
-
-                    <select
-                      value={filterYear}
-                      onChange={(e) => setFilterYear(e.target.value)}
-                      className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                    >
-                      <option value="All">All Years</option>
-                      <option value="1st Year">1st Year</option>
-                      <option value="2nd Year">2nd Year</option>
-                      <option value="3rd Year">3rd Year</option>
-                      <option value="4th Year">4th Year</option>
-                    </select>
-
-                    <select
-                      value={filterSection}
-                      onChange={(e) => setFilterSection(e.target.value)}
-                      className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                    >
-                      <option value="All">All Sections</option>
-                      <option value="A">Sec A</option>
-                      <option value="B">Sec B</option>
-                      <option value="C">Sec C</option>
-                    </select>
-
-                    <select
-                      value={filterCohortStatus}
-                      onChange={(e) => setFilterCohortStatus(e.target.value)}
-                      className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                    >
-                      <option value="All">All Cohorts</option>
-                      <option value="Group A">Group A (ALC)</option>
-                      <option value="Group B">Group B (FLC)</option>
-                    </select>
-
-                    <select
-                      value={filterAcademicStatus}
-                      onChange={(e) => setFilterAcademicStatus(e.target.value)}
-                      className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                    >
-                      <option value="All">All Statuses</option>
-                      <option value="Regular">Regular</option>
-                      <option value="Condonation">Condonation</option>
-                      <option value="Detained">Detained</option>
-                    </select>
-
-                  </div>
-
-                  {hasPermission('Manage Students') && (
-                    <button
-                      onClick={openAddStudentModal}
-                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Add Student
-                    </button>
-                  )}
-                </div>
-
-                {/* Students List Table */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        <tr>
-                          <th className="px-6 py-4">Student</th>
-                          <th className="px-6 py-4">Roll Number</th>
-                          <th className="px-6 py-4">Department & Class</th>
-                          <th className="px-6 py-4">Cohort Assignment</th>
-                          <th className="px-6 py-4">Stats (GPA / Att.)</th>
-                          <th className="px-6 py-4">Academic Status</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
-                        {adminStudents.filter(s => {
-                          const matchesSearch = s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                                                s.rollNumber.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                                                (s.email && s.email.toLowerCase().includes(studentSearch.toLowerCase()));
-                          const matchesYear = filterYear === 'All' || s.year === filterYear;
-                          const matchesSec = filterSection === 'All' || s.section === filterSection;
-                          const matchesCohort = filterCohortStatus === 'All' || s.cohort === filterCohortStatus;
-                          const matchesStatus = filterAcademicStatus === 'All' || s.academicStatus === filterAcademicStatus;
-                          const matchesBatch = filterBatch === 'All' || s.batch === filterBatch;
-                          return matchesSearch && matchesYear && matchesSec && matchesCohort && matchesStatus && matchesBatch;
-                        }).map((stu) => (
-                          <tr key={stu.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="font-bold text-slate-900 dark:text-white block">{stu.name}</span>
-                              <span className="text-[10px] text-slate-400 block mt-0.5">{stu.email}</span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap font-mono font-bold text-slate-800 dark:text-slate-200">
-                              {stu.rollNumber}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-slate-650 dark:text-slate-350">
-                              <div className="font-bold text-slate-900 dark:text-white">{stu.department || 'ECE'} – {stu.year || '3rd Year'}</div>
-                              <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Sec {stu.section || 'A'} • Batch: {stu.batch || '2023 - 2027'}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                stu.cohort === 'Group A'
-                                  ? 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400'
-                                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
-                              }`}>
-                                {stu.cohort === 'Group A' ? 'Group A (Advanced)' : 'Group B (Foundation)'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="flex flex-col">
-                                <span className="font-bold text-slate-800 dark:text-slate-200">CGPA: {stu.gpa} / 10</span>
-                                <span className="text-[10px] text-slate-400">Attendance: {stu.attendance}%</span>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${
-                                stu.academicStatus === 'Regular'
-                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                                  : stu.academicStatus === 'Condonation'
-                                  ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300'
-                                  : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
-                              }`}>
-                                {stu.academicStatus || 'Regular'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                
-                                {/* View details */}
-                                <button
-                                  onClick={() => handleViewProfile(stu)}
-                                  className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                  title="View Student Profile & Counselling Logs"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </button>
-
-                                {/* Record Session shortcut */}
-                                {hasPermission('Manage Counselling') && (
-                                  <button
-                                    onClick={() => openAddCounsellingModal(stu)}
-                                    className="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Add Counselling Record"
-                                  >
-                                    <HeartHandshake className="h-4 w-4" />
-                                  </button>
-                                )}
-
-                                {/* Edit student details */}
-                                {hasPermission('Manage Students') && (
-                                  <button
-                                    onClick={() => openEditStudentModal(stu)}
-                                    className="p-1.5 text-slate-500 hover:text-dhanekula-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Edit Student Info"
-                                  >
-                                    <Edit className="h-4 w-4" />
-                                  </button>
-                                )}
-
-                                {/* Delete student details */}
-                                {hasPermission('Manage Students') && (
-                                  <button
-                                    onClick={() => handleDeleteStudent(stu)}
-                                    className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Archive Student Record"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                )}
-
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                        {adminStudents.length === 0 && (
-                          <tr>
-                            <td colSpan={7} className="px-6 py-8 text-center text-slate-450 italic">
-                              No student records have been created yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
+            {/* Search & Filters */}
+            <div className="flex flex-wrap items-center gap-2">
+              
+              {/* Search */}
+              <div className="relative w-full sm:max-w-xs group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 group-hover:text-emerald-600" />
+                <input
+                  type="text"
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                  placeholder="Search roll no, name, ID..."
+                  className="pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-full"
+                />
               </div>
-            ) : (
-              /* PANEL B: HOMEPAGE HIGHLIGHTS CONSOLE */
-              <div className="space-y-6">
-                
-                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/50 rounded-2xl p-4 text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-                  <strong>Privacy Rule Safeguard:</strong> Students' private details, session notes, and academic challenges are never published to the home page. Highlights are limited strictly to anonymized safe summaries and categories approved explicitly by admins with publishing controls.
-                </div>
 
-                {/* Published List Table */}
-                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
-                      <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        <tr>
-                          <th className="px-6 py-4">Date & Category</th>
-                          <th className="px-6 py-4">Student Roll</th>
-                          <th className="px-6 py-4">Public Header Title</th>
-                          <th className="px-6 py-4">Safe Summary Preview</th>
-                          <th className="px-6 py-4">Student Name Public?</th>
-                          <th className="px-6 py-4">Homepage Status</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
-                        {publishedCounsellingList.map((session) => (
-                          <tr key={session.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="font-bold text-slate-800 dark:text-slate-200 block">{session.counselling_date}</span>
-                              <span className="text-[10px] text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-md mt-1 inline-block uppercase tracking-wider font-bold">{session.type}</span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap font-mono">
-                              {session.student_roll || 'N/A'}
-                            </td>
-                            <td className="px-6 py-4 font-bold text-slate-900 dark:text-white">
-                              {session.public_title || <span className="italic text-slate-400">No public title set</span>}
-                            </td>
-                            <td className="px-6 py-4 text-slate-600 dark:text-slate-350 max-w-xs truncate">
-                              {session.public_summary || <span className="italic text-slate-400">No safe summary configured</span>}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                session.allow_student_name_public === 1
-                                  ? 'bg-emerald-55 text-emerald-800 dark:bg-emerald-950'
-                                  : 'bg-slate-100 text-slate-600 dark:bg-slate-850 dark:text-slate-400'
-                              }`}>
-                                {session.allow_student_name_public === 1 ? 'ALLOWED (Public Name)' : 'ANONYMIZED (Hidden)'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                session.publish_to_home === 1
-                                  ? 'bg-emerald-100 text-emerald-850 dark:bg-emerald-950/80 dark:text-emerald-350'
-                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-850 dark:text-slate-400'
-                              }`}>
-                                {session.publish_to_home === 1 ? 'PUBLISHED' : 'OFFLINE'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                
-                                {/* Edit publishing status */}
-                                {hasPermission('Publish Counselling') && (
-                                  <button
-                                    onClick={() => openEditCounsellingModal(session, session.student_name || 'Student')}
-                                    className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Edit Public Highlight & Title"
-                                  >
-                                    <Edit className="h-4 w-4" />
-                                  </button>
-                                )}
+              {/* Filters */}
+              <select
+                value={filterBatch}
+                onChange={(e) => setFilterBatch(e.target.value)}
+                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold"
+              >
+                <option value="All">All Batches</option>
+                <option value="2022 - 2026">2022 - 2026</option>
+                <option value="2023 - 2027">2023 - 2027</option>
+                <option value="2024 - 2028">2024 - 2028</option>
+                <option value="2025 - 2029">2025 - 2029</option>
+                <option value="2026 - 2030">2026 - 2030</option>
+              </select>
 
-                                {/* Delete Counselling session */}
-                                {hasPermission('Manage Counselling') && (
-                                  <button
-                                    onClick={() => handleDeleteCounselling(session.id)}
-                                    className="p-1.5 text-slate-500 hover:text-red-650 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                    title="Delete Session Log"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                )}
+              <select
+                value={filterYear}
+                onChange={(e) => setFilterYear(e.target.value)}
+                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              >
+                <option value="All">All Years</option>
+                <option value="1st Year">1st Year</option>
+                <option value="2nd Year">2nd Year</option>
+                <option value="3rd Year">3rd Year</option>
+                <option value="4th Year">4th Year</option>
+              </select>
 
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                        {publishedCounsellingList.length === 0 && (
-                          <tr>
-                            <td colSpan={7} className="px-6 py-8 text-center text-slate-450 italic">
-                              No counselling records recorded yet. Set "Publish on Home Page" on a counselling session to list here.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+              <select
+                value={filterSection}
+                onChange={(e) => setFilterSection(e.target.value)}
+                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              >
+                <option value="All">All Sections</option>
+                <option value="A">Sec A</option>
+                <option value="B">Sec B</option>
+                <option value="C">Sec C</option>
+              </select>
 
+              <select
+                value={filterAcademicStatus}
+                onChange={(e) => setFilterAcademicStatus(e.target.value)}
+                className="p-2 text-xs rounded-xl border border-slate-250 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              >
+                <option value="All">All Statuses</option>
+                <option value="Regular">Regular</option>
+                <option value="Condonation">Condonation</option>
+                <option value="Detained">Detained</option>
+              </select>
+
+            </div>
+
+            {/* Students List Table */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <tr>
+                      <th className="px-6 py-4">Student</th>
+                      <th className="px-6 py-4">Roll Number / ID</th>
+                      <th className="px-6 py-4">Department & Class</th>
+                      <th className="px-6 py-4">Stats (GPA / Att.)</th>
+                      <th className="px-6 py-4">Academic Status</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                    {adminStudents.filter(s => {
+                      const matchesSearch = s.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                                            s.rollNumber.toLowerCase().includes(studentSearch.toLowerCase()) ||
+                                            (s.id && s.id.toLowerCase().includes(studentSearch.toLowerCase())) ||
+                                            (s.email && s.email.toLowerCase().includes(studentSearch.toLowerCase()));
+                      const matchesYear = filterYear === 'All' || s.year === filterYear;
+                      const matchesSec = filterSection === 'All' || s.section === filterSection;
+                      const matchesStatus = filterAcademicStatus === 'All' || s.academicStatus === filterAcademicStatus;
+                      const matchesBatch = filterBatch === 'All' || s.batch === filterBatch;
+                      return matchesSearch && matchesYear && matchesSec && matchesStatus && matchesBatch;
+                    }).map((stu) => (
+                      <tr key={stu.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="font-bold text-slate-900 dark:text-white block">{stu.name}</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">{stu.email}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200 block">{stu.rollNumber}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block">{stu.id}</span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-slate-650 dark:text-slate-350">
+                          <div className="font-bold text-slate-900 dark:text-white">{stu.department || 'ECE'} – {stu.year || '3rd Year'}</div>
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Sec {stu.section || 'A'} • Batch: {stu.batch || '2023 - 2027'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">CGPA: {stu.gpa} / 10</span>
+                            <span className="text-[10px] text-slate-400">Attendance: {stu.attendance}%</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black ${
+                            stu.academicStatus === 'Regular'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                              : stu.academicStatus === 'Condonation'
+                              ? 'bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300'
+                              : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+                          }`}>
+                            {stu.academicStatus || 'Regular'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            
+                            {/* View details */}
+                            <button
+                              onClick={() => handleViewProfile(stu)}
+                              className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                              title="View Student Profile & Counselling Logs"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+
+                            {/* Record Session shortcut */}
+                            {hasPermission('Manage Counselling') && (
+                              <button
+                                onClick={() => openAddCounsellingModal(stu)}
+                                className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                title="Add Counselling Record"
+                              >
+                                <HeartHandshake className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Edit student details */}
+                            {hasPermission('Manage Students') && (
+                              <button
+                                onClick={() => openEditStudentModal(stu)}
+                                className="p-1.5 text-slate-500 hover:text-dhanekula-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                title="Edit Student Info"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Delete student details */}
+                            {hasPermission('Manage Students') && (
+                              <button
+                                onClick={() => handleDeleteStudent(stu)}
+                                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                title="Archive Student Record"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {adminStudents.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-450 italic">
+                          No student records have been created yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            )}
+            </div>
 
           </div>
         )}
@@ -2085,6 +2014,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
             ========================================== */}
         {activeAdminTab === 'settings' && (
           <div className="space-y-6">
+            
+            {/* Visual Theme Configuration */}
             <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 System and Theme Configuration
@@ -2102,8 +2033,170 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   {theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
                 </button>
               </div>
+            </div>
 
-              <div className="py-3 text-xs">
+            {/* Change My Password (Available for all logged-in accounts) */}
+            <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-xs">
+              <div className="flex items-center gap-2">
+                <Key className="h-4.5 w-4.5 text-dhanekula-royal" />
+                <div>
+                  <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                    Change My Password
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Update the credentials for your logged-in account ({adminUser?.name} • @{adminUser?.username}).
+                  </p>
+                </div>
+              </div>
+
+              {changePassMsg && (
+                <div className={`p-3 rounded-2xl border text-xs font-bold animate-fade-in ${
+                  changePassMsg.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                    : 'bg-red-50 text-red-800 dark:bg-red-950/60 dark:text-red-300 border-red-200 dark:border-red-800'
+                }`}>
+                  {changePassMsg.text}
+                </div>
+              )}
+
+              <form onSubmit={handleChangeMyPassword} className="space-y-4 max-w-lg pt-1">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 dark:text-slate-400">Current Password *</label>
+                  <input
+                    type="password"
+                    required
+                    value={changePassForm.currentPassword}
+                    onChange={(e) => setChangePassForm({ ...changePassForm, currentPassword: e.target.value })}
+                    placeholder="Enter current password"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 dark:text-slate-400">New Password * (Min 6 chars)</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={changePassForm.newPassword}
+                      onChange={(e) => setChangePassForm({ ...changePassForm, newPassword: e.target.value })}
+                      placeholder="Enter new password"
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 dark:text-slate-400">Confirm New Password *</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={changePassForm.confirmPassword}
+                      onChange={(e) => setChangePassForm({ ...changePassForm, confirmPassword: e.target.value })}
+                      placeholder="Re-enter new password"
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={changePassLoading}
+                  className="px-5 py-2.5 rounded-xl bg-dhanekula-royal hover:bg-dhanekula-600 text-white font-bold transition-all shadow-sm disabled:opacity-50"
+                >
+                  {changePassLoading ? 'Saving Password...' : 'Update Password'}
+                </button>
+              </form>
+            </div>
+
+            {/* Super Admin Password Reset Tool for Sub-Admins */}
+            {isSuperAdmin && (
+              <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 text-xs">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4.5 w-4.5 text-emerald-600" />
+                  <div>
+                    <h3 className="font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                      Reset Sub-Admin Password
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Super Admin Tool: Select any Sub-Admin account and securely set a new password.
+                    </p>
+                  </div>
+                </div>
+
+                {superAdminResetMsg && (
+                  <div className={`p-3 rounded-2xl border text-xs font-bold animate-fade-in ${
+                    superAdminResetMsg.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                      : 'bg-red-50 text-red-800 dark:bg-red-950/60 dark:text-red-300 border-red-200 dark:border-red-800'
+                  }`}>
+                    {superAdminResetMsg.text}
+                  </div>
+                )}
+
+                <form onSubmit={handleSuperAdminResetSubAdminPassword} className="space-y-4 max-w-lg pt-1">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 dark:text-slate-400">Select Sub-Admin Account *</label>
+                    <select
+                      required
+                      value={superAdminResetForm.selectedSubAdminId}
+                      onChange={(e) => setSuperAdminResetForm({ ...superAdminResetForm, selectedSubAdminId: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold focus:outline-none"
+                    >
+                      <option value="" disabled>▼ Select a Sub-Admin</option>
+                      {subAdmins.map(sa => (
+                        <option key={sa.id} value={sa.id}>
+                          {sa.name} (@{sa.username}) – {sa.email} [{sa.status}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 dark:text-slate-400">New Password * (Min 6 chars)</label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={superAdminResetForm.newPassword}
+                        onChange={(e) => setSuperAdminResetForm({ ...superAdminResetForm, newPassword: e.target.value })}
+                        placeholder="Enter new password"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 dark:text-slate-400">Confirm New Password *</label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={superAdminResetForm.confirmPassword}
+                        onChange={(e) => setSuperAdminResetForm({ ...superAdminResetForm, confirmPassword: e.target.value })}
+                        placeholder="Re-enter new password"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/50 dark:border-slate-800 text-[10px] text-slate-500">
+                    ℹ️ Note: The Super Admin cannot reset their own password using this tool. To update the Super Admin password, please use the "Change My Password" section above.
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={superAdminResetLoading}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all shadow-sm disabled:opacity-50"
+                  >
+                    {superAdminResetLoading ? 'Resetting Sub-Admin Password...' : 'Reset Sub-Admin Password'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* System Info */}
+            <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="text-xs">
                 <h4 className="font-bold text-slate-900 dark:text-white">System Information</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-3">
                   <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/50 dark:border-slate-800/50">
@@ -2125,6 +2218,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 </div>
               </div>
             </div>
+
           </div>
         )}
 
@@ -2871,16 +2965,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto animate-fade-in text-xs text-slate-800 dark:text-slate-200">
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl my-8">
             <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
-              <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
-                {editingStudentId ? 'Modify Student Profile' : 'Add New Student Record'}
-              </h3>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                  {editingStudentId ? 'Modify Student Profile' : 'Add New Student Record'}
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {editingStudentId ? 'Update details for this existing student.' : 'Create a permanent student record using Roll Number & Student ID.'}
+                </p>
+              </div>
               <button onClick={() => setShowStudentFormModal(false)} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-250">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
+            {duplicateAlert && (
+              <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-2xl text-amber-900 dark:text-amber-200 space-y-2">
+                <div className="flex items-center gap-2 font-bold text-xs">
+                  <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                  <span>Student Already Exists</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  {duplicateAlert.message}
+                </p>
+                {duplicateAlert.existingStudentId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowStudentFormModal(false);
+                      const existing = adminStudents.find(s => s.id === duplicateAlert.existingStudentId);
+                      if (existing) {
+                        handleViewProfile(existing);
+                      }
+                    }}
+                    className="mt-1 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs inline-flex items-center gap-1.5 shadow-sm transition-all"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Open Existing Student Profile & Add Counselling Note →
+                  </button>
+                )}
+              </div>
+            )}
+
             <form onSubmit={handleStudentFormSubmit} className="space-y-4 pt-4">
-              {/* Basic Demographic Grid */}
+              
+              {/* Optional Custom Student ID and Roll Number */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-450">Full Name *</label>
@@ -2905,6 +3033,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   />
                 </div>
                 <div className="space-y-1">
+                  <label className="font-bold text-slate-450">Student ID (Optional / Auto)</label>
+                  <input
+                    type="text"
+                    disabled={!!editingStudentId}
+                    value={studentForm.studentId}
+                    onChange={(e) => setStudentForm({ ...studentForm, studentId: e.target.value })}
+                    placeholder="Auto-generated if blank"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none disabled:opacity-60"
+                  />
+                </div>
+              </div>
+
+              {/* Email & Academic Batch */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
                   <label className="font-bold text-slate-450">Email Address *</label>
                   <input
                     type="email"
@@ -2915,29 +3058,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
                   />
                 </div>
-              </div>
- 
-              {/* Batch Selector */}
-              <div className="space-y-1 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
-                <label className="font-extrabold text-slate-750 dark:text-slate-250 flex items-center gap-1.5">
-                  Student Batch / Academic Batch <span className="text-red-500">*</span>
-                </label>
-                <select
-                  required
-                  value={studentForm.batch}
-                  onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold focus:outline-none"
-                >
-                  <option value="" disabled>▼ Select Batch</option>
-                  <option value="2022 - 2026">2022 - 2026</option>
-                  <option value="2023 - 2027">2023 - 2027</option>
-                  <option value="2024 - 2028">2024 - 2028</option>
-                  <option value="2025 - 2029">2025 - 2029</option>
-                  <option value="2026 - 2030">2026 - 2030</option>
-                </select>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal">
-                  Select the academic batch this student belongs to. This determines where the student will appear in the Student Counselling section.
-                </p>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-450">Academic Batch *</label>
+                  <select
+                    required
+                    value={studentForm.batch}
+                    onChange={(e) => setStudentForm({ ...studentForm, batch: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold focus:outline-none"
+                  >
+                    <option value="" disabled>▼ Select Batch</option>
+                    <option value="2022 - 2026">2022 - 2026</option>
+                    <option value="2023 - 2027">2023 - 2027</option>
+                    <option value="2024 - 2028">2024 - 2028</option>
+                    <option value="2025 - 2029">2025 - 2029</option>
+                    <option value="2026 - 2030">2026 - 2030</option>
+                  </select>
+                </div>
               </div>
 
               {/* Class & Department info */}
@@ -3025,31 +3161,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 </div>
               </div>
 
-              {/* Cohort & Status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-450">Cohort Group assignment *</label>
-                  <select
-                    value={studentForm.cohort}
-                    onChange={(e) => setStudentForm({ ...studentForm, cohort: e.target.value as any })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-bold"
-                  >
-                    <option value="Group A">Group A – Advanced Learner (ALC)</option>
-                    <option value="Group B">Group B – Foundation Learner (FLC)</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-450">Academic Status</label>
-                  <select
-                    value={studentForm.academicStatus}
-                    onChange={(e) => setStudentForm({ ...studentForm, academicStatus: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-bold"
-                  >
-                    <option value="Regular">Regular Status</option>
-                    <option value="Condonation">Condonation Warning</option>
-                    <option value="Detained">Detained Status</option>
-                  </select>
-                </div>
+              {/* Status */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-450">Academic Status</label>
+                <select
+                  value={studentForm.academicStatus}
+                  onChange={(e) => setStudentForm({ ...studentForm, academicStatus: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-bold"
+                >
+                  <option value="Regular">Regular Status</option>
+                  <option value="Condonation">Condonation Warning</option>
+                  <option value="Detained">Detained Status</option>
+                </select>
               </div>
 
               {/* Parents & Strengths CSV */}
@@ -3112,7 +3235,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   disabled={isSavingStudent}
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSavingStudent ? 'Creating Student...' : editingStudentId ? 'Save Profile' : 'Create Student'}
+                  {isSavingStudent ? 'Saving Student...' : editingStudentId ? 'Save Profile' : 'Create Student'}
                 </button>
               </div>
             </form>
@@ -3131,10 +3254,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
             </div>
             <div>
               <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
-                Student Created Successfully
+                Student Record Created Successfully
               </h3>
               <p className="text-slate-500 dark:text-slate-400 mt-1">
-                The new student record has been saved and initialized.
+                The student record has been initialized and is ready for counselling sessions.
               </p>
             </div>
             <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 text-left space-y-2">
@@ -3209,7 +3332,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                     <option value="Attendance">Low Attendance Warning</option>
                     <option value="Performance">Low Mid-Term Performance</option>
                     <option value="Disciplinary">Disciplinary Counsel</option>
-                    <option value="Personal">Personal counselling</option>
+                    <option value="Personal">Personal Counselling</option>
                   </select>
                 </div>
               </div>
@@ -3224,7 +3347,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   required
                   value={counsellingForm.private_notes}
                   onChange={(e) => setCounsellingForm({ ...counsellingForm, private_notes: e.target.value })}
-                  placeholder="Enter detailed counseling session logs. These notes are stored securely and never exposed to the public frontend."
+                  placeholder="Enter detailed counseling session logs. These notes are stored securely and never exposed publicly."
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-55 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
                 />
               </div>
@@ -3299,81 +3422,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 </div>
               </div>
 
-              {/* Homepage Publishing Control Console */}
-              <div className="space-y-3 bg-emerald-50/30 dark:bg-emerald-950/10 border border-emerald-250/25 dark:border-emerald-900/25 p-4.5 rounded-2xl">
-                <div className="flex items-center justify-between border-b border-emerald-100/50 dark:border-emerald-850 pb-2">
-                  <span className="font-extrabold text-emerald-850 dark:text-emerald-350 block uppercase tracking-wider text-[10px]">
-                    Homepage Highlight Publisher Controls
-                  </span>
-                  
-                  {/* Permission Guard */}
-                  {!hasPermission('Publish Counselling') && (
-                    <span className="text-[10px] text-red-500 font-bold flex items-center gap-1">
-                      <Lock className="h-3 w-3" /> Requires Publish permission
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="publish_to_home"
-                      disabled={!hasPermission('Publish Counselling')}
-                      checked={counsellingForm.publish_to_home === 1}
-                      onChange={(e) => setCounsellingForm({ ...counsellingForm, publish_to_home: e.target.checked ? 1 : 0 })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <label htmlFor="publish_to_home" className="font-bold text-slate-700 dark:text-slate-300 select-none">
-                      Publish Update on Public Homepage
-                    </label>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="allow_student_name_public"
-                      disabled={!hasPermission('Publish Counselling') || counsellingForm.publish_to_home !== 1}
-                      checked={counsellingForm.allow_student_name_public === 1}
-                      onChange={(e) => setCounsellingForm({ ...counsellingForm, allow_student_name_public: e.target.checked ? 1 : 0 })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <label htmlFor="allow_student_name_public" className="font-bold text-slate-700 dark:text-slate-300 select-none flex items-center gap-1">
-                      Allow Student Name to be Public <span className="text-[9px] text-slate-400 font-semibold">(Default: OFF)</span>
-                    </label>
-                  </div>
-                </div>
-
-                {counsellingForm.publish_to_home === 1 && (
-                  <div className="space-y-3 pt-2">
-                    <div className="space-y-1">
-                      <label className="font-bold text-emerald-850 dark:text-emerald-350">Public Highlight Title *</label>
-                      <input
-                        type="text"
-                        required={counsellingForm.publish_to_home === 1}
-                        disabled={!hasPermission('Publish Counselling')}
-                        value={counsellingForm.public_title}
-                        onChange={(e) => setCounsellingForm({ ...counsellingForm, public_title: e.target.value })}
-                        placeholder="e.g. Guidance on Flipped Classrooms"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="font-bold text-emerald-850 dark:text-emerald-350">Public Safe Summary *</label>
-                      <textarea
-                        rows={2.5}
-                        required={counsellingForm.publish_to_home === 1}
-                        disabled={!hasPermission('Publish Counselling')}
-                        value={counsellingForm.public_summary}
-                        onChange={(e) => setCounsellingForm({ ...counsellingForm, public_summary: e.target.value })}
-                        placeholder="Summarize the counseling update safely without exposing grades, family circumstances, parent contacts, or private issues. Focus on student cohort achievements."
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Form Buttons */}
               <div className="flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800 pt-3.5">
                 <button
@@ -3387,7 +3435,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   type="submit"
                   className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
                 >
-                  {editingSessionId ? 'Update Record' : 'Record Session'}
+                  {editingSessionId ? 'Update Record' : 'Save Counselling Session'}
                 </button>
               </div>
             </form>
@@ -3408,7 +3456,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                 <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">
                   Student Profile Timeline
                 </h3>
-                <span className="text-[10px] text-dhanekula-royal dark:text-sky-400 block font-bold">Roll Number: {viewingStudentProfile.rollNumber}</span>
+                <span className="text-[10px] text-dhanekula-royal dark:text-sky-400 block font-bold">Roll Number: {viewingStudentProfile.rollNumber} • ID: {viewingStudentProfile.id}</span>
               </div>
               <button
                 onClick={() => setViewingStudentProfile(null)}
@@ -3442,10 +3490,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/60 dark:border-slate-800">
                 <div>
-                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Class & Cohort</span>
+                  <span className="text-[10px] text-slate-400 font-bold block uppercase">Class & Batch</span>
                   <span className="font-extrabold text-slate-900 dark:text-white mt-0.5">
                     {viewingStudentProfile.department || 'ECE'} – {viewingStudentProfile.year || '3rd Year'} (Sec {viewingStudentProfile.section || 'A'})
-                    <span className="block text-[10px] text-sky-600 mt-0.5 font-bold uppercase">{viewingStudentProfile.cohort} • Batch {viewingStudentProfile.batch || '2023 - 2027'}</span>
+                    <span className="block text-[10px] text-emerald-600 mt-0.5 font-bold uppercase">Batch {viewingStudentProfile.batch || '2023 - 2027'}</span>
                   </span>
                 </div>
                 <div>
@@ -3506,11 +3554,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
 
                 {counsellingHistory.length === 0 ? (
                   <div className="p-6 text-center bg-slate-50 dark:bg-slate-850 rounded-2xl border border-slate-200/60 dark:border-slate-800 text-slate-500 italic text-[11px]">
-                    No counselling sessions recorded for this student yet.
+                    No counselling sessions recorded for this student yet. Click "Add Session Record" to record a new session.
                   </div>
                 ) : (
                   <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
-                    {counsellingHistory.map((session, idx) => (
+                    {counsellingHistory.map((session) => (
                       <div
                         key={session.id}
                         className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3 relative group"
@@ -3519,7 +3567,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                         <div className="flex justify-between items-start">
                           <div>
                             <span className="font-mono font-bold text-slate-900 dark:text-white">{session.counselling_date}</span>
-                            <span className="text-[9px] font-bold text-sky-600 bg-sky-50 dark:bg-sky-950 px-2 py-0.5 rounded ml-2 uppercase tracking-wide inline-block">{session.type} Counsel</span>
+                            <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded ml-2 uppercase tracking-wide inline-block">{session.type} Guidance</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold">
                             <span>Counsellor: {session.counsellor_name}</span>
@@ -3553,17 +3601,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                           <p className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed font-sans">{session.private_notes}</p>
                         </div>
 
-                        {/* Public summary tracker */}
-                        {session.publish_to_home === 1 && (
-                          <div className="bg-emerald-50/20 dark:bg-emerald-950/10 border border-emerald-250/20 dark:border-emerald-900/20 p-3 rounded-xl text-[11px] leading-relaxed">
-                            <span className="text-[9px] font-bold text-emerald-800 dark:text-emerald-450 block uppercase mb-1">Published Highlight Safe Preview:</span>
-                            <strong className="text-slate-900 dark:text-white block mt-0.5">"{session.public_title}"</strong>
-                            <p className="text-slate-650 dark:text-slate-350 italic mt-0.5">"{session.public_summary}"</p>
-                          </div>
-                        )}
-
                         {/* Concerns, action items info */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[10px] leading-relaxed text-slate-500">
+                          {session.student_concerns && (
+                            <p><strong>Concerns:</strong> {session.student_concerns}</p>
+                          )}
                           {session.guidance && (
                             <p><strong>Guidance:</strong> {session.guidance}</p>
                           )}

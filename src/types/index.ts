@@ -62,7 +62,7 @@ export interface Student {
   name: string;
   rollNumber: string;
   email: string;
-  cohort: CohortType;
+  cohort?: string;
   gpa: number;
   attendance: number;
   strengths: string[];
@@ -148,23 +148,13 @@ export interface CounsellingSession {
   follow_up_date?: string;
   follow_up_required: 'Yes' | 'No';
   status: 'Draft' | 'Completed' | 'Follow-Up Required';
-  publish_to_home: number;
-  allow_student_name_public: number;
+  publish_to_home?: number;
+  allow_student_name_public?: number;
   public_title?: string;
   public_summary?: string;
   created_at?: string;
   updated_at?: string;
   student_name?: string;
   student_roll?: string;
-}
-
-export interface PublicCounsellingUpdate {
-  id: number;
-  category: string;
-  title: string;
-  publicSummary: string;
-  publicDate: string;
-  counsellorName: string;
-  studentName: string;
 }
 

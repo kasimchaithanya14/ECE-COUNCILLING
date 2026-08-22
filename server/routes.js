@@ -137,9 +137,53 @@ router.post('/auth/logout', authenticateToken, async (req, res) => {
 });
 
 // GET: Current authenticated user details
+// GET: Current authenticated user details
 router.get('/auth/me', authenticateToken, (req, res) => {
   const { password_hash, ...userInfo } = req.user;
   return res.json({ user: userInfo });
+});
+
+// POST: Change own password (Logged-in Super Admin or Sub-Admin)
+router.post('/auth/change-password', authenticateToken, async (req, res) => {
+  const { currentPassword, newPassword, confirmPassword } = req.body;
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    return res.status(400).json({ error: 'Current password, new password, and confirmation are required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  }
+
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: 'New passwords do not match.' });
+  }
+
+  try {
+    const user = await dbGet('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    if (!user) {
+      return res.status(404).json({ error: 'User account not found.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Current password is incorrect.' });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ error: 'New password cannot be the same as the current password.' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await dbRun('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [passwordHash, user.id]);
+
+    await logActivity(user.name, 'Changed Password', 'Own user account', 'Success');
+
+    return res.json({ message: 'Your password has been changed successfully.' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    return res.status(500).json({ error: 'Failed to change password.' });
+  }
 });
 
 // ==========================================
@@ -252,7 +296,7 @@ router.put('/admin/sub-admins/:id', authenticateToken, requireRole(['SUPER_ADMIN
   }
 });
 
-// POST: Reset sub-admin password
+// POST: Reset sub-admin password (SUPER_ADMIN only)
 router.post('/admin/sub-admins/:id/reset-password', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
   const { id } = req.params;
   const { newPassword, confirmPassword } = req.body;
@@ -271,8 +315,8 @@ router.post('/admin/sub-admins/:id/reset-password', authenticateToken, requireRo
       return res.status(404).json({ error: 'Sub-admin not found.' });
     }
 
-    if (targetUser.role === 'SUPER_ADMIN') {
-      return res.status(403).json({ error: 'Cannot reset the Super Admin password.' });
+    if (targetUser.role === 'SUPER_ADMIN' || parseInt(id, 10) === req.user.id) {
+      return res.status(403).json({ error: 'Cannot reset the Super Admin password through the Sub-Admin reset flow. Please use the Change Password option in Settings.' });
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -280,7 +324,7 @@ router.post('/admin/sub-admins/:id/reset-password', authenticateToken, requireRo
 
     await logActivity(req.user.name, 'Reset Sub-Admin Password', `Sub-Admin "${targetUser.name}"`, 'Success');
 
-    return res.json({ message: 'Password reset successful.' });
+    return res.json({ message: `Password for "${targetUser.name}" has been reset successfully.` });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Failed to reset password.' });
@@ -471,9 +515,20 @@ router.delete('/resources/:id', authenticateToken, requirePermission('Manage Cou
 });
 
 // --- STUDENTS ROSTER ---
-router.get('/students', async (req, res) => {
+router.get('/students', authenticateToken, async (req, res) => {
   try {
-    const rows = await dbQuery('SELECT * FROM students ORDER BY name ASC');
+    let rows;
+    if (req.user.role === 'SUPER_ADMIN') {
+      rows = await dbQuery('SELECT * FROM students ORDER BY name ASC');
+    } else {
+      rows = await dbQuery(`
+        SELECT s.* 
+        FROM students s
+        JOIN student_assignments sa ON s.id = sa.student_id
+        WHERE sa.sub_admin_id = ?
+        ORDER BY s.name ASC
+      `, [req.user.id]);
+    }
     const students = rows.map(r => ({
       ...r,
       strengths: JSON.parse(r.strengths || '[]'),
@@ -483,23 +538,6 @@ router.get('/students', async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Failed to fetch students roster.' });
-  }
-});
-
-router.put('/students/:id/cohort', authenticateToken, requirePermission('Manage Student Cohorts'), async (req, res) => {
-  const { id } = req.params;
-  const { cohort } = req.body;
-  if (!cohort) {
-    return res.status(400).json({ error: 'Cohort Group A/B assignment is required.' });
-  }
-  try {
-    const target = await dbGet('SELECT name FROM students WHERE id = ?', [id]);
-    await dbRun('UPDATE students SET cohort = ? WHERE id = ?', [cohort, id]);
-    await logActivity(req.user.name, 'Assigned Student Cohort', `Student "${target?.name}" to ${cohort}`, 'Success');
-    return res.json({ message: 'Student cohort updated.' });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Failed to update student cohort.' });
   }
 });
 
@@ -657,32 +695,7 @@ router.delete('/admin/submissions/:id', authenticateToken, requirePermission('Ma
 // 6. STUDENT COUNSELLING ENDPOINTS
 // ==========================================
 
-// GET: Public list of approved and published counselling updates
-router.get('/public/counselling', async (req, res) => {
-  try {
-    const query = `
-      SELECT 
-        cs.id, 
-        cs.type as category, 
-        cs.public_title as title, 
-        cs.public_summary as publicSummary, 
-        cs.counselling_date as publicDate, 
-        cs.counsellor_name as counsellorName, 
-        CASE WHEN cs.allow_student_name_public = 1 THEN s.name ELSE 'Anonymized Student' END as studentName 
-      FROM counselling_sessions cs 
-      LEFT JOIN students s ON cs.student_id = s.id 
-      WHERE cs.publish_to_home = 1 AND cs.status = 'Completed' 
-      ORDER BY cs.counselling_date DESC
-    `;
-    const updates = await dbQuery(query);
-    return res.json(updates);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Failed to fetch public counselling updates.' });
-  }
-});
-
-// GET: Admin - list all students with complete information
+// GET: Admin - list students with role-based access control
 router.get('/admin/students', authenticateToken, async (req, res) => {
   const canAccess = req.user.role === 'SUPER_ADMIN' || 
                     req.user.permissionsList.includes('View Students') || 
@@ -718,8 +731,9 @@ router.get('/admin/students', authenticateToken, async (req, res) => {
   }
 });
 
+// POST: Admin - create student (creates student only once, prevents duplicate student IDs)
 router.post('/admin/students', authenticateToken, requirePermission('Manage Students'), async (req, res) => {
-  const { name, rollNumber, email, cohort, gpa, attendance, strengths, focusAreas, department, year, semester, section, phone, academicStatus, parentName, notes, batch } = req.body;
+  const { id: inputId, studentId, name, rollNumber, email, cohort, gpa, attendance, strengths, focusAreas, department, year, semester, section, phone, academicStatus, parentName, notes, batch } = req.body;
   
   if (!batch) {
     return res.status(400).json({ error: 'Please select a student batch.' });
@@ -728,18 +742,33 @@ router.post('/admin/students', authenticateToken, requirePermission('Manage Stud
     return res.status(400).json({ error: "Please enter the student's full name." });
   }
   if (!rollNumber) {
-    return res.status(400).json({ error: 'Roll Number is required.' });
-  }
-  if (!cohort) {
-    return res.status(400).json({ error: 'Group / Cohort is required.' });
+    return res.status(400).json({ error: 'Roll Number / Student ID is required.' });
   }
 
   const studentEmail = email ? email.trim() : `${rollNumber.toLowerCase()}@dhanekula.ac.in`;
+  const desiredId = (studentId || inputId || '').trim();
 
   try {
-    const existingRoll = await dbGet('SELECT id FROM students WHERE rollNumber = ? AND batch = ?', [rollNumber, batch]);
+    // Check if roll number already exists in DB
+    const existingRoll = await dbGet('SELECT id, name, rollNumber FROM students WHERE rollNumber = ?', [rollNumber]);
     if (existingRoll) {
-      return res.status(400).json({ error: 'This roll number already exists in the selected batch.' });
+      return res.status(400).json({
+        error: `Student with roll number "${rollNumber}" already exists (${existingRoll.name}, ID: ${existingRoll.id}). You can directly record counselling notes for this student.`,
+        duplicate: true,
+        existingStudentId: existingRoll.id
+      });
+    }
+
+    // If a custom ID was specified, check if ID exists
+    if (desiredId) {
+      const existingById = await dbGet('SELECT id, name, rollNumber FROM students WHERE id = ?', [desiredId]);
+      if (existingById) {
+        return res.status(400).json({
+          error: `Student with ID "${desiredId}" already exists (${existingById.name}, Roll: ${existingById.rollNumber}). Duplicate student records are not allowed.`,
+          duplicate: true,
+          existingStudentId: existingById.id
+        });
+      }
     }
 
     const existingEmail = await dbGet('SELECT id FROM students WHERE email = ?', [studentEmail]);
@@ -747,24 +776,27 @@ router.post('/admin/students', authenticateToken, requirePermission('Manage Stud
       return res.status(400).json({ error: `A student with email "${studentEmail}" already exists.` });
     }
 
-    // Generate sequential unique Student ID: STU-000107
-    const allStudents = await dbQuery("SELECT id FROM students");
-    let maxNum = 100;
-    for (const r of allStudents) {
-      const match = r.id.match(/^(?:stu-|STU-)(\d+)$/i);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > maxNum) {
-          maxNum = num;
+    // Generate sequential unique Student ID if not provided: STU-000107
+    let newId = desiredId;
+    if (!newId) {
+      const allStudents = await dbQuery("SELECT id FROM students");
+      let maxNum = 100;
+      for (const r of allStudents) {
+        const match = r.id.match(/^(?:stu-|STU-)(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) {
+            maxNum = num;
+          }
         }
       }
-    }
-    const nextNum = maxNum + 1;
-    let newId = `STU-${String(nextNum).padStart(6, '0')}`;
-    
-    while (await dbGet('SELECT id FROM students WHERE id = ?', [newId])) {
-      maxNum++;
-      newId = `STU-${String(maxNum + 1).padStart(6, '0')}`;
+      const nextNum = maxNum + 1;
+      newId = `STU-${String(nextNum).padStart(6, '0')}`;
+      
+      while (await dbGet('SELECT id FROM students WHERE id = ?', [newId])) {
+        maxNum++;
+        newId = `STU-${String(maxNum + 1).padStart(6, '0')}`;
+      }
     }
 
     const strJson = JSON.stringify(strengths || []);
@@ -776,13 +808,25 @@ router.post('/admin/students', authenticateToken, requirePermission('Manage Stud
         department, year, semester, section, phone, academicStatus, parentName, notes, batch
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        newId, name, rollNumber, studentEmail, cohort, parseFloat(gpa) || 0.0, parseFloat(attendance) || 0.0,
+        newId, name, rollNumber, studentEmail, cohort || '', parseFloat(gpa) || 0.0, parseFloat(attendance) || 0.0,
         strJson, focJson, department || 'ECE', year || '3rd Year', semester || '1st Sem',
         section || 'A', phone || '', academicStatus || 'Regular', parentName || '', notes || '', batch
       ]
     );
 
-    await logActivity(req.user.name, 'Created Student Record', `Roll: ${rollNumber}`, 'Success');
+    // If created by a Sub-Admin, automatically assign the student to that Sub-Admin
+    if (req.user.role === 'SUB_ADMIN') {
+      try {
+        await dbRun(
+          'INSERT INTO student_assignments (student_id, sub_admin_id, assigned_by) VALUES (?, ?, ?)',
+          [newId, req.user.id, req.user.name]
+        );
+      } catch (assignErr) {
+        console.warn('Auto-assignment for created student note:', assignErr);
+      }
+    }
+
+    await logActivity(req.user.name, 'Created Student Record', `Roll: ${rollNumber} (ID: ${newId})`, 'Success');
     return res.status(201).json({ message: 'Student created successfully.', studentId: newId });
   } catch (error) {
     console.error(error);
@@ -804,9 +848,6 @@ router.put('/admin/students/:id', authenticateToken, requirePermission('Manage S
   if (!rollNumber) {
     return res.status(400).json({ error: 'Roll Number is required.' });
   }
-  if (!cohort) {
-    return res.status(400).json({ error: 'Group / Cohort is required.' });
-  }
 
   const studentEmail = email ? email.trim() : `${rollNumber.toLowerCase()}@dhanekula.ac.in`;
 
@@ -819,7 +860,7 @@ router.put('/admin/students/:id', authenticateToken, requirePermission('Manage S
       }
     }
 
-    const target = await dbGet('SELECT * FROM students WHERE id = ?', [id]);
+    const target = await dbGet('SELECT id FROM students WHERE id = ?', [id]);
     if (!target) {
       return res.status(404).json({ error: 'Student not found.' });
     }
@@ -843,7 +884,7 @@ router.put('/admin/students/:id', authenticateToken, requirePermission('Manage S
         department = ?, year = ?, semester = ?, section = ?, phone = ?, academicStatus = ?, parentName = ?, notes = ?, batch = ?
       WHERE id = ?`,
       [
-        name, rollNumber, studentEmail, cohort, parseFloat(gpa) || 0.0, parseFloat(attendance) || 0.0,
+        name, rollNumber, studentEmail, cohort || '', parseFloat(gpa) || 0.0, parseFloat(attendance) || 0.0,
         strJson, focJson, department || 'ECE', year || '3rd Year', semester || '1st Sem',
         section || 'A', phone || '', academicStatus || 'Regular', parentName || '', notes || '', batch,
         id
@@ -912,17 +953,13 @@ router.get('/admin/students/:id/counselling', authenticateToken, async (req, res
   }
 });
 
-// POST: Admin - add a new counselling session
+// POST: Admin - add a new dated counselling session (can be added multiple times without overwriting)
 router.post('/admin/students/:id/counselling', authenticateToken, requirePermission('Manage Counselling'), async (req, res) => {
   const { id } = req.params;
-  const { counselling_date, type, private_notes, student_concerns, guidance, action_items, follow_up_date, follow_up_required, status, publish_to_home, allow_student_name_public, public_title, public_summary } = req.body;
+  const { counselling_date, type, private_notes, student_concerns, guidance, action_items, follow_up_date, follow_up_required, status } = req.body;
 
   if (!counselling_date || !type || !private_notes) {
-    return res.status(400).json({ error: 'Counselling Date, Counselling Type, and Private Discussion Notes are required.' });
-  }
-
-  if (publish_to_home === 1 && (!public_title || !public_summary)) {
-    return res.status(400).json({ error: 'Public Title and Public Summary are required when publishing to the homepage.' });
+    return res.status(400).json({ error: 'Counselling Date, Counselling Category, and Discussion Notes are required.' });
   }
 
   try {
@@ -947,21 +984,15 @@ router.post('/admin/students/:id/counselling', authenticateToken, requirePermiss
         student_id, counsellor_id, counsellor_name, counselling_date, type, private_notes,
         student_concerns, guidance, action_items, follow_up_date, follow_up_required, status,
         publish_to_home, allow_student_name_public, public_title, public_summary
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '', '')`,
       [
         id, counsellorId, counsellorName, counselling_date, type, private_notes,
         student_concerns || '', guidance || '', action_items || '', follow_up_date || '',
-        follow_up_required || 'No', status || 'Completed',
-        publish_to_home ? 1 : 0, allow_student_name_public ? 1 : 0,
-        public_title || '', public_summary || ''
+        follow_up_required || 'No', status || 'Completed'
       ]
     );
 
     await logActivity(req.user.name, 'Created Counselling Record', `Student: ${student.rollNumber}`, 'Success');
-
-    if (publish_to_home) {
-      await logActivity(req.user.name, 'Published Counselling Update', `Update: "${public_title}"`, 'Success');
-    }
 
     return res.status(201).json({ message: 'Counselling session recorded successfully.' });
   } catch (error) {
@@ -973,14 +1004,10 @@ router.post('/admin/students/:id/counselling', authenticateToken, requirePermiss
 // PUT: Admin - edit a counselling session
 router.put('/admin/counselling/:sessionId', authenticateToken, requirePermission('Manage Counselling'), async (req, res) => {
   const { sessionId } = req.params;
-  const { counselling_date, type, private_notes, student_concerns, guidance, action_items, follow_up_date, follow_up_required, status, publish_to_home, allow_student_name_public, public_title, public_summary } = req.body;
+  const { counselling_date, type, private_notes, student_concerns, guidance, action_items, follow_up_date, follow_up_required, status } = req.body;
 
   if (!counselling_date || !type || !private_notes) {
-    return res.status(400).json({ error: 'Counselling Date, Counselling Type, and Private Discussion Notes are required.' });
-  }
-
-  if (publish_to_home === 1 && (!public_title || !public_summary)) {
-    return res.status(400).json({ error: 'Public Title and Public Summary are required when publishing to the homepage.' });
+    return res.status(400).json({ error: 'Counselling Date, Counselling Category, and Discussion Notes are required.' });
   }
 
   try {
@@ -1003,14 +1030,12 @@ router.put('/admin/counselling/:sessionId', authenticateToken, requirePermission
       `UPDATE counselling_sessions SET 
         counselling_date = ?, type = ?, private_notes = ?, student_concerns = ?, guidance = ?,
         action_items = ?, follow_up_date = ?, follow_up_required = ?, status = ?,
-        publish_to_home = ?, allow_student_name_public = ?, public_title = ?, public_summary = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`,
       [
         counselling_date, type, private_notes, student_concerns || '', guidance || '',
         action_items || '', follow_up_date || '', follow_up_required || 'No', status || 'Completed',
-        publish_to_home ? 1 : 0, allow_student_name_public ? 1 : 0,
-        public_title || '', public_summary || '', sessionId
+        sessionId
       ]
     );
 
@@ -1051,74 +1076,6 @@ router.delete('/admin/counselling/:sessionId', authenticateToken, requirePermiss
   }
 });
 
-// PUT: Admin - change publication status (Publish Counselling permission required)
-router.put('/admin/counselling/:sessionId/publish', authenticateToken, requirePermission('Publish Counselling'), async (req, res) => {
-  const { sessionId } = req.params;
-  const { publish_to_home, allow_student_name_public, public_title, public_summary } = req.body;
-
-  if (publish_to_home === 1 && (!public_title || !public_summary)) {
-    return res.status(400).json({ error: 'Public Title and Public Summary are required to publish update.' });
-  }
-
-  try {
-    const session = await dbGet('SELECT * FROM counselling_sessions WHERE id = ?', [sessionId]);
-    if (!session) {
-      return res.status(404).json({ error: 'Counselling session not found.' });
-    }
-
-    if (req.user.role === 'SUB_ADMIN') {
-      const assignment = await dbGet('SELECT 1 FROM student_assignments WHERE student_id = ? AND sub_admin_id = ?', [session.student_id, req.user.id]);
-      if (!assignment) {
-        await logActivity(req.user.name, 'Unauthorized Publish Attempt', `Session ID: ${sessionId}`, 'Denied');
-        return res.status(403).json({ error: 'Access denied. You are not assigned to this student.' });
-      }
-    }
-
-    await dbRun(
-      `UPDATE counselling_sessions SET 
-        publish_to_home = ?, allow_student_name_public = ?, public_title = ?, public_summary = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?`,
-      [
-        publish_to_home ? 1 : 0, allow_student_name_public ? 1 : 0,
-        public_title || '', public_summary || '', sessionId
-      ]
-    );
-
-    const actionText = publish_to_home ? 'Published Counselling Highlight' : 'Unpublished Counselling Highlight';
-    await logActivity(req.user.name, actionText, `Session ID: ${sessionId}`, 'Success');
-
-    return res.json({ message: `Counselling publication status updated successfully.` });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Failed to update publication status.' });
-  }
-});
-
-// GET: Admin - list all published counselling sessions for dashboard management
-router.get('/admin/published-counselling', authenticateToken, async (req, res) => {
-  const canAccess = req.user.role === 'SUPER_ADMIN' || 
-                    req.user.permissionsList.includes('View Counselling') || 
-                    req.user.permissionsList.includes('Manage Counselling') || 
-                    req.user.permissionsList.includes('Publish Counselling');
-  if (!canAccess) {
-    return res.status(403).json({ error: 'Permission denied.' });
-  }
-
-  try {
-    const list = await dbQuery(`
-      SELECT cs.*, s.name as student_name, s.rollNumber as student_roll 
-      FROM counselling_sessions cs 
-      LEFT JOIN students s ON cs.student_id = s.id 
-      ORDER BY cs.counselling_date DESC
-    `);
-    return res.json(list);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Failed to fetch counselling sessions.' });
-  }
-});
-
 // GET: Admin - list sub-admin student counts and assignments
 router.get('/admin/assignments', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
   try {
@@ -1126,7 +1083,7 @@ router.get('/admin/assignments', authenticateToken, requireRole(['SUPER_ADMIN'])
     const result = [];
     for (const sa of subAdmins) {
       const assignedStudents = await dbQuery(`
-        SELECT s.id, s.name, s.rollNumber, s.batch, s.section, s.cohort 
+        SELECT s.id, s.name, s.rollNumber, s.batch, s.section 
         FROM students s 
         JOIN student_assignments sa_rel ON s.id = sa_rel.student_id 
         WHERE sa_rel.sub_admin_id = ?
@@ -1150,7 +1107,7 @@ router.get('/admin/sub-admins/:id/assignments', authenticateToken, requireRole([
   const { id } = req.params;
   try {
     const students = await dbQuery(`
-      SELECT s.id, s.name, s.rollNumber, s.batch, s.section, s.cohort 
+      SELECT s.id, s.name, s.rollNumber, s.batch, s.section 
       FROM students s 
       JOIN student_assignments sa ON s.id = sa.student_id 
       WHERE sa.sub_admin_id = ?

@@ -101,8 +101,8 @@ const DashboardContent: React.FC<DashboardContentProps> = ({ navigate, initialTa
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
                 }`}
             >
-              <HeartHandshake className="h-4 w-4 text-dhanekula-royal" />
-              <span>Student Counselling</span>
+              <Users className="h-4 w-4 text-dhanekula-royal" />
+              <span>Student Directory</span>
             </button>
           </nav>
         </div>
