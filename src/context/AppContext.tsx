@@ -172,16 +172,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       
       // Local Storage Fallback initialization
       const savedMethods = localStorage.getItem('dhanekula_methods');
-      setTeachingMethods(savedMethods ? JSON.parse(savedMethods) : INITIAL_TEACHING_METHODS);
+      if (savedMethods) {
+        try {
+          const parsed = JSON.parse(savedMethods);
+          const sanitized = parsed.map((m: any) => ({
+            ...m,
+            cohort: 'Unified Learning Cohort'
+          }));
+          setTeachingMethods(sanitized);
+        } catch (e) {
+          setTeachingMethods(INITIAL_TEACHING_METHODS);
+        }
+      } else {
+        setTeachingMethods(INITIAL_TEACHING_METHODS);
+      }
 
       const savedWeekly = localStorage.getItem('dhanekula_weekly_plan');
       setWeeklyPlan(savedWeekly ? JSON.parse(savedWeekly) : INITIAL_WEEKLY_PLAN);
 
       const savedResources = localStorage.getItem('dhanekula_resources');
-      setResources(savedResources ? JSON.parse(savedResources) : INITIAL_COURSEWARE_RESOURCES);
+      if (savedResources) {
+        try {
+          const parsed = JSON.parse(savedResources);
+          const sanitized = parsed.map((r: any) => ({
+            ...r,
+            cohort: 'Unified Learning Cohort'
+          }));
+          setResources(sanitized);
+        } catch (e) {
+          setResources(INITIAL_COURSEWARE_RESOURCES);
+        }
+      } else {
+        setResources(INITIAL_COURSEWARE_RESOURCES);
+      }
 
       const savedStudents = localStorage.getItem('dhanekula_students');
-      setStudents(savedStudents ? JSON.parse(savedStudents) : INITIAL_STUDENTS);
+      if (savedStudents) {
+        try {
+          const parsed = JSON.parse(savedStudents);
+          const sanitized = parsed.map((s: any) => ({
+            ...s,
+            cohort: 'Unified Learning Cohort'
+          }));
+          setStudents(sanitized);
+        } catch (e) {
+          setStudents(INITIAL_STUDENTS);
+        }
+      } else {
+        setStudents(INITIAL_STUDENTS);
+      }
     }
   };
 
@@ -262,6 +301,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // ==========================================
 
   const updateMethod = async (updated: TeachingMethod) => {
+    // 1. Immediately update in React state for instant UI responsiveness
+    setTeachingMethods((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+    if (selectedMethod && selectedMethod.id === updated.id) {
+      setSelectedMethod(updated);
+    }
+
+    // 2. Persist to localStorage
+    try {
+      const saved = localStorage.getItem('dhanekula_methods');
+      const list: TeachingMethod[] = saved ? JSON.parse(saved) : [];
+      const updatedList = list.some((m) => m.id === updated.id)
+        ? list.map((m) => (m.id === updated.id ? updated : m))
+        : [...list, updated];
+      localStorage.setItem('dhanekula_methods', JSON.stringify(updatedList));
+    } catch (e) {}
+
+    // 3. Sync to backend API if available
     if (isApiMode) {
       try {
         const res = await fetch(`/api/methods/${updated.id}`, {
@@ -275,20 +331,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           throw new Error(errData.error || 'Failed to update method on server.');
         }
         showToast(`Updated teaching method: "${updated.name}"`);
-        await syncData();
       } catch (err: any) {
-        showToast(`Error: ${err.message}`);
+        showToast(`Saved locally (Server: ${err.message})`);
       }
     } else {
-      setTeachingMethods((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
-      if (selectedMethod && selectedMethod.id === updated.id) {
-        setSelectedMethod(updated);
-      }
       showToast(`Updated teaching method: "${updated.name}"`);
     }
   };
 
   const addMethod = async (newMethod: TeachingMethod) => {
+    // 1. Immediately update in React state
+    setTeachingMethods((prev) => [newMethod, ...prev]);
+
+    // 2. Persist to localStorage
+    try {
+      const saved = localStorage.getItem('dhanekula_methods');
+      const list: TeachingMethod[] = saved ? JSON.parse(saved) : [];
+      localStorage.setItem('dhanekula_methods', JSON.stringify([newMethod, ...list]));
+    } catch (e) {}
+
+    // 3. Sync to backend API if available
     if (isApiMode) {
       try {
         const res = await fetch('/api/methods', {
@@ -302,18 +364,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           throw new Error(errData.error || 'Failed to create method on server.');
         }
         showToast(`Added new method: "${newMethod.name}"`);
-        await syncData();
       } catch (err: any) {
-        showToast(`Error: ${err.message}`);
+        showToast(`Saved locally (Server: ${err.message})`);
       }
     } else {
-      setTeachingMethods((prev) => [newMethod, ...prev]);
       showToast(`Added new method: "${newMethod.name}"`);
     }
   };
 
   const deleteMethod = async (id: string) => {
     const target = teachingMethods.find(m => m.id === id);
+    setTeachingMethods((prev) => prev.filter((m) => m.id !== id));
+    if (selectedMethod && selectedMethod.id === id) {
+      setSelectedMethod(null);
+    }
+
+    try {
+      const saved = localStorage.getItem('dhanekula_methods');
+      if (saved) {
+        const list: TeachingMethod[] = JSON.parse(saved);
+        localStorage.setItem('dhanekula_methods', JSON.stringify(list.filter(m => m.id !== id)));
+      }
+    } catch (e) {}
+
     if (isApiMode) {
       try {
         const res = await fetch(`/api/methods/${id}`, {
@@ -325,12 +398,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           throw new Error(errData.error || 'Failed to delete method on server.');
         }
         showToast(`Deleted method: "${target?.name || id}"`);
-        await syncData();
       } catch (err: any) {
-        showToast(`Error: ${err.message}`);
+        showToast(`Deleted locally (Server: ${err.message})`);
       }
     } else {
-      setTeachingMethods((prev) => prev.filter((m) => m.id !== id));
       showToast(`Deleted method: "${target?.name || id}"`);
     }
   };

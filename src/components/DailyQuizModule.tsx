@@ -77,7 +77,7 @@ export const DailyQuizModule: React.FC = () => {
             </div>
             <div>
               <span className="text-[10px] font-black uppercase tracking-widest bg-cyberRed-950 px-2 py-0.5 rounded-md text-cyberRed-400 border border-cyberRed-800">
-                Group B • Foundation Method
+                Unified Learning Cohort (ULC)
               </span>
               <h2 className="text-xl font-black text-white">Daily Concept Quiz (5-Question Reinforcement)</h2>
             </div>

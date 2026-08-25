@@ -89,7 +89,8 @@ export const initDb = async () => {
       category TEXT NOT NULL,
       tags TEXT NOT NULL,
       materialsCount INTEGER DEFAULT 0,
-      featured INTEGER DEFAULT 0
+      featured INTEGER DEFAULT 0,
+      videoUrl TEXT DEFAULT NULL
     )
   `);
 
@@ -238,6 +239,34 @@ export const initDb = async () => {
   await addColumn('notes', 'TEXT', 'NULL');
   await addColumn('batch', 'TEXT', "'2023 - 2027'");
 
+  // Migration: Add videoUrl to teaching_methods if not exists
+  const addMethodColumn = async (col, type, def = 'NULL') => {
+    try {
+      await dbRun(`ALTER TABLE teaching_methods ADD COLUMN ${col} ${type} DEFAULT ${def}`);
+    } catch (e) {
+      // Column already exists
+    }
+  };
+  await addMethodColumn('videoUrl', 'TEXT', 'NULL');
+
+  // Migration: Unify all cohorts to 'Unified Learning Cohort'
+  try {
+    await dbRun("UPDATE teaching_methods SET cohort = 'Unified Learning Cohort' WHERE cohort IN ('Group A', 'Group B')");
+    await dbRun("UPDATE students SET cohort = 'Unified Learning Cohort' WHERE cohort IN ('Group A', 'Group B') OR cohort IS NULL");
+    await dbRun("UPDATE resources SET cohort = 'Unified Learning Cohort' WHERE cohort IN ('Group A', 'Group B')");
+    
+    // Pre-populate sample video URLs for existing methods if null
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=qdKzBx54CSk' WHERE (id = 'method-a1' OR id = 'method-1') AND (videoUrl IS NULL OR videoUrl = '')");
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=NnO8w6sW7-M' WHERE (id = 'method-a2' OR id = 'method-2') AND (videoUrl IS NULL OR videoUrl = '')");
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=LMCZvGesRz8' WHERE (id = 'method-a3' OR id = 'method-3') AND (videoUrl IS NULL OR videoUrl = '')");
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=s8r1mU9jQe0' WHERE (id = 'method-a10' OR id = 'method-10') AND (videoUrl IS NULL OR videoUrl = '')");
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=f2O9z7X-W-w' WHERE (id = 'method-b1' OR id = 'method-11') AND (videoUrl IS NULL OR videoUrl = '')");
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=oXbLpLw3V28' WHERE (id = 'method-b4' OR id = 'method-14') AND (videoUrl IS NULL OR videoUrl = '')");
+    await dbRun("UPDATE teaching_methods SET videoUrl = 'https://www.youtube.com/watch?v=r0O6jG0jZ9s' WHERE (id = 'method-b10' OR id = 'method-20') AND (videoUrl IS NULL OR videoUrl = '')");
+  } catch (e) {
+    console.error('Migration error:', e);
+  }
+
   // Seed default Super Admin
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
   const adminInitialPassword = process.env.ADMIN_INITIAL_PASSWORD || 'AdminSecurePassword123';
@@ -275,16 +304,17 @@ export const initDb = async () => {
   if (methodCount.count === 0) {
     const defaultMethods = [
       {
-        id: 'method-a1',
+        id: 'method-1',
         name: 'Flipped Classroom',
-        cohort: 'Group A',
+        cohort: 'Unified Learning Cohort',
         implementation: 'Students study videos/material before class; class used for applications',
         expectedOutcome: 'Higher-order thinking',
         detailedDescription: 'Pre-class engagement via digital courseware lectures and interactive video modules, freeing in-person contact hours for deep problem solving, design challenges, and real-world engineering applications.',
         category: 'Active Learning',
         tags: JSON.stringify(['Pre-class Video', 'Higher Order', 'Application-Focused']),
         materialsCount: 14,
-        featured: 1
+        featured: 1,
+        videoUrl: 'https://www.youtube.com/watch?v=qdKzBx54CSk'
       },
       {
         id: 'method-a2',
@@ -518,8 +548,8 @@ export const initDb = async () => {
 
     for (const m of defaultMethods) {
       await dbRun(
-        'INSERT INTO teaching_methods (id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [m.id, m.name, m.cohort, m.implementation, m.expectedOutcome, m.detailedDescription, m.category, m.tags, m.materialsCount, m.featured]
+        'INSERT INTO teaching_methods (id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured, videoUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [m.id, m.name, m.cohort, m.implementation, m.expectedOutcome, m.detailedDescription, m.category, m.tags, m.materialsCount, m.featured, m.videoUrl || null]
       );
     }
     console.log('Seeded teaching methods database.');

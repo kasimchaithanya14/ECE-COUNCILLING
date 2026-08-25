@@ -1,4 +1,4 @@
-export type CohortType = 'Group A' | 'Group B';
+export type CohortType = 'Unified Learning Cohort';
 
 export type UserRole = 'faculty' | 'student';
 
@@ -14,13 +14,14 @@ export interface TeachingMethod {
   tags: string[];
   materialsCount?: number;
   featured?: boolean;
+  videoUrl?: string;
 }
 
 export interface CohortInfo {
   id: CohortType;
   title: string;
   subtitle: string;
-  code: 'ALC' | 'FLC';
+  code: 'ULC' | 'Unified' | string;
   description: string;
   targetAudience: string;
   studentCount: number;
@@ -98,7 +99,7 @@ export interface ExpectedOutcomeMetric {
   value: string;
   percentage: number;
   description: string;
-  cohortTarget: CohortType | 'Both';
+  cohortTarget: CohortType | 'All' | 'Both';
   icon: string;
 }
 

@@ -17,7 +17,7 @@ export const CoursewareResources: React.FC = () => {
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState('');
   const [subject, setSubject] = useState('Digital Signal Processing');
-  const [cohort, setCohort] = useState<CohortType | 'All'>('Group A');
+  const [cohort, setCohort] = useState<CohortType | 'All'>('Unified Learning Cohort');
   const [type, setType] = useState<'video' | 'pdf' | 'quiz' | 'simulation' | 'code'>('pdf');
   const [url, setUrl] = useState('');
   const [description, setDescription] = useState('');
@@ -172,9 +172,8 @@ export const CoursewareResources: React.FC = () => {
             onChange={(e) => setSelectedCohort(e.target.value)}
             className="p-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
           >
-            <option value="All">All Cohorts</option>
-            <option value="Group A">Group A – ALC</option>
-            <option value="Group B">Group B – FLC</option>
+            <option value="All">All Resources</option>
+            <option value="Unified Learning Cohort">Unified Learning Cohort</option>
           </select>
 
           <select
@@ -192,8 +191,6 @@ export const CoursewareResources: React.FC = () => {
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {filteredResources.map((res) => {
-          const isGroupA = res.cohort === 'Group A';
-
           return (
             <div
               key={res.id}
@@ -201,16 +198,8 @@ export const CoursewareResources: React.FC = () => {
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                      isGroupA
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                        : res.cohort === 'Group B'
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                        : 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                    }`}
-                  >
-                    {res.cohort}
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-dhanekula-royal/10 text-dhanekula-royal dark:bg-dhanekula-navy/60 dark:text-dhanekula-300 border border-dhanekula-royal/20">
+                    Unified Learning Cohort (ULC)
                   </span>
 
                   {/* Delete Button for Faculty */}
@@ -352,8 +341,7 @@ export const CoursewareResources: React.FC = () => {
                     onChange={(e) => setCohort(e.target.value as any)}
                     className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white font-semibold"
                   >
-                    <option value="Group A">Group A – ALC</option>
-                    <option value="Group B">Group B – FLC</option>
+                    <option value="Unified Learning Cohort">Unified Learning Cohort (ULC)</option>
                     <option value="All">All Students</option>
                   </select>
                 </div>

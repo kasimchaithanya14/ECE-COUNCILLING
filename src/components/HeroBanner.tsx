@@ -7,14 +7,12 @@ import {
   Users,
   Calendar,
   GraduationCap,
-  Sparkles
+  Sparkles,
+  Play
 } from 'lucide-react';
 
 export const HeroBanner: React.FC = () => {
   const { teachingMethods, students, activeCohort, setActiveCohort } = useApp();
-
-  const groupAMethodsCount = teachingMethods.filter(m => m.cohort === 'Group A').length;
-  const groupBMethodsCount = teachingMethods.filter(m => m.cohort === 'Group B').length;
 
   return (
     <div className="animate-slide-up relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-dhanekula-navy to-slate-900 text-white p-6 sm:p-8 md:p-10 shadow-2xl border border-dhanekula-800/50">
@@ -44,7 +42,7 @@ export const HeroBanner: React.FC = () => {
         {/* Title & Objective Callout */}
         <div className="max-w-4xl space-y-3">
           <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black tracking-tight text-white leading-tight">
-            Differentiated Teaching–Learning Strategies <br className="hidden sm:inline" />
+            Unified Teaching–Learning Strategies <br className="hidden sm:inline" />
             <span className="bg-gradient-to-r from-dhanekula-300 via-sky-200 to-white bg-clip-text text-transparent">
               For Third-Year B.Tech ECE Students
             </span>
@@ -59,7 +57,7 @@ export const HeroBanner: React.FC = () => {
               <span className="font-bold text-white uppercase tracking-wider text-[11px] block mb-0.5">
                 Core Objective:
               </span>
-              To improve teaching-learning effectiveness, academic performance, student progression, and employability through differentiated instructional strategies across Advanced (Group A) and Foundation (Group B) learning cohorts.
+              To improve teaching-learning effectiveness, academic performance, student progression, and employability through unified, innovative instructional strategies across the Unified Learning Cohort (ULC) with integrated video lectures.
             </div>
           </div>
         </div>
@@ -67,7 +65,7 @@ export const HeroBanner: React.FC = () => {
         {/* Interactive Cohort Quick Filter Tabs */}
         <div className="pt-2 flex flex-wrap items-center gap-3">
           <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-            Filter View:
+            Cohort View:
           </span>
 
           <button
@@ -78,31 +76,19 @@ export const HeroBanner: React.FC = () => {
                 : 'bg-white/10 text-slate-200 hover:bg-white/20 border border-white/10 hover:scale-105'
             }`}
           >
-            All Cohorts (20 Methods)
+            All Methods ({teachingMethods.length} Methods)
           </button>
 
           <button
-            onClick={() => setActiveCohort('Group A')}
+            onClick={() => setActiveCohort('Unified Learning Cohort')}
             className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center gap-2 ${
-              activeCohort === 'Group A'
-                ? 'bg-emerald-500 text-white shadow-xl scale-105'
-                : 'bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/60 border border-emerald-500/30 hover:scale-105'
+              activeCohort === 'Unified Learning Cohort'
+                ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-xl scale-105'
+                : 'bg-indigo-950/60 text-indigo-300 hover:bg-indigo-900/60 border border-indigo-500/30 hover:scale-105'
             }`}
           >
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
-            Group A – ALC ({groupAMethodsCount} Methods)
-          </button>
-
-          <button
-            onClick={() => setActiveCohort('Group B')}
-            className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all duration-300 flex items-center gap-2 ${
-              activeCohort === 'Group B'
-                ? 'bg-amber-500 text-white shadow-xl scale-105'
-                : 'bg-amber-950/60 text-amber-300 hover:bg-amber-900/60 border border-amber-500/30 hover:scale-105'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping"></span>
-            Group B – FLC ({groupBMethodsCount} Methods)
+            <span className="h-2 w-2 rounded-full bg-indigo-400 animate-ping"></span>
+            Unified Learning Cohort (ULC)
           </button>
         </div>
 
@@ -116,7 +102,7 @@ export const HeroBanner: React.FC = () => {
             <div className="text-2xl font-black text-white mt-1.5">
               {teachingMethods.length}
             </div>
-            <p className="text-[11px] text-slate-300 mt-0.5">10 Group A + 10 Group B</p>
+            <p className="text-[11px] text-slate-300 mt-0.5">Integrated Video Modules</p>
           </div>
 
           <div className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs hover:scale-105 hover:bg-white/10 transition-all duration-300 group">
@@ -127,7 +113,7 @@ export const HeroBanner: React.FC = () => {
             <div className="text-2xl font-black text-white mt-1.5">
               Mon – Sat
             </div>
-            <p className="text-[11px] text-slate-300 mt-0.5">Differentiated Daily Plans</p>
+            <p className="text-[11px] text-slate-300 mt-0.5">Collaborative Weekly Plan</p>
           </div>
 
           <div className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs hover:scale-105 hover:bg-white/10 transition-all duration-300 group">
@@ -136,9 +122,9 @@ export const HeroBanner: React.FC = () => {
               <Users className="h-4 w-4 text-purple-400 group-hover:rotate-12 transition-transform" />
             </div>
             <div className="text-2xl font-black text-white mt-1.5">
-              {students.length} Enrolled
+              {students.length || 80} Enrolled
             </div>
-            <p className="text-[11px] text-slate-300 mt-0.5">3rd Year B.Tech ECE</p>
+            <p className="text-[11px] text-slate-300 mt-0.5">Unified Learning Cohort</p>
           </div>
 
           <div className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs hover:scale-105 hover:bg-white/10 transition-all duration-300 group">

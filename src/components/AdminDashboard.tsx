@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { AdminUser, AuditLog, TeachingMethod, CoursewareResource, Student, MediaSubmission, CounsellingSession } from '../types';
+import { getYouTubeEmbedUrl } from './TeachingMethodsGrid';
 import {
   GraduationCap,
   Users,
@@ -32,7 +33,8 @@ import {
   HeartHandshake,
   Key,
   ShieldCheck,
-  ShieldAlert
+  ShieldAlert,
+  Video
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -219,7 +221,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
   const [methodForm, setMethodForm] = useState({
     id: '',
     name: '',
-    cohort: 'Group A' as 'Group A' | 'Group B',
+    cohort: 'Unified Learning Cohort' as any,
     implementation: '',
     expectedOutcome: '',
     detailedDescription: '',
@@ -227,7 +229,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     tags: [] as string[],
     tagInput: '',
     materialsCount: 0,
-    featured: false
+    featured: false,
+    videoUrl: ''
   });
 
   // Form states for Digital Resources
@@ -714,17 +717,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       return;
     }
 
+    const cleanVideoUrl = methodForm.videoUrl && methodForm.videoUrl.trim() ? methodForm.videoUrl.trim() : undefined;
+
     const methodData: TeachingMethod = {
-      id: methodForm.id || 'method-' + Math.random().toString(36).substring(2, 9),
+      id: methodForm.id || (editingMethod ? editingMethod.id : 'method-' + Math.random().toString(36).substring(2, 9)),
       name: methodForm.name,
-      cohort: methodForm.cohort,
+      cohort: methodForm.cohort || 'Unified Learning Cohort',
       implementation: methodForm.implementation,
       expectedOutcome: methodForm.expectedOutcome,
       detailedDescription: methodForm.detailedDescription,
       category: methodForm.category,
       tags: methodForm.tags,
       materialsCount: methodForm.materialsCount,
-      featured: methodForm.featured
+      featured: methodForm.featured,
+      videoUrl: cleanVideoUrl
     };
 
     if (editingMethod) {
@@ -732,6 +738,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     } else {
       await addMethod(methodData);
     }
+    setEditingMethod(null);
     setShowMethodModal(false);
   };
 
@@ -740,7 +747,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     setMethodForm({
       id: '',
       name: '',
-      cohort: 'Group A',
+      cohort: 'Unified Learning Cohort' as any,
       implementation: '',
       expectedOutcome: '',
       detailedDescription: '',
@@ -748,7 +755,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       tags: [],
       tagInput: '',
       materialsCount: 0,
-      featured: false
+      featured: false,
+      videoUrl: ''
     });
     setShowMethodModal(true);
   };
@@ -758,7 +766,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     setMethodForm({
       id: m.id,
       name: m.name,
-      cohort: m.cohort,
+      cohort: m.cohort || 'Unified Learning Cohort',
       implementation: m.implementation,
       expectedOutcome: m.expectedOutcome,
       detailedDescription: m.detailedDescription || '',
@@ -766,7 +774,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
       tags: m.tags || [],
       tagInput: '',
       materialsCount: m.materialsCount || 0,
-      featured: !!m.featured
+      featured: !!m.featured,
+      videoUrl: m.videoUrl || ''
     });
     setShowMethodModal(true);
   };
@@ -1393,6 +1402,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                       <th className="px-6 py-4">Method Name</th>
                       <th className="px-6 py-4">Cohort</th>
                       <th className="px-6 py-4">Category</th>
+                      <th className="px-6 py-4">Video Link</th>
                       <th className="px-6 py-4">Objective / Expected Outcome</th>
                       <th className="px-6 py-4">Tags</th>
                       <th className="px-6 py-4 text-right">Actions</th>
@@ -1406,16 +1416,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                           <span className="block text-[10px] text-slate-450 mt-0.5 truncate max-w-[200px]">{m.implementation}</span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            m.cohort === 'Group A'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
-                              : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
-                          }`}>
-                            {m.cohort === 'Group A' ? 'Group A (ALC)' : 'Group B (FLC)'}
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-dhanekula-royal/10 text-dhanekula-royal dark:bg-dhanekula-navy/60 dark:text-dhanekula-300 border border-dhanekula-royal/20">
+                            Unified (ULC)
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-slate-650 dark:text-slate-350">
                           {m.category}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {m.videoUrl ? (
+                            <a
+                              href={m.videoUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-[10px] font-bold hover:bg-red-100 transition-colors"
+                              title={m.videoUrl}
+                            >
+                              <Video className="h-3 w-3" />
+                              <span>YouTube Video</span>
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">No video</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-slate-650 dark:text-slate-350 font-medium max-w-[220px] truncate">
                           {m.expectedOutcome}
@@ -1455,7 +1477,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                     ))}
                     {filteredMethods.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-slate-450 italic">
+                        <td colSpan={7} className="px-6 py-8 text-center text-slate-450 italic">
                           No teaching methods match your search.
                         </td>
                       </tr>
@@ -1923,14 +1945,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                           {res.subject}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            res.cohort === 'Group A'
-                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                              : res.cohort === 'Group B'
-                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                          }`}>
-                            {res.cohort}
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-dhanekula-royal/10 text-dhanekula-royal dark:bg-dhanekula-navy/60 dark:text-dhanekula-300 border border-dhanekula-royal/20">
+                            {res.cohort === 'All' ? 'All Students' : 'Unified (ULC)'}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap uppercase text-[10px] font-bold">
@@ -2946,8 +2962,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                     onChange={(e) => setMethodForm({ ...methodForm, cohort: e.target.value as any })}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-semibold"
                   >
-                    <option value="Group A">Group A (Advanced - ALC)</option>
-                    <option value="Group B">Group B (Foundation - FLC)</option>
+                    <option value="Unified Learning Cohort">Unified Learning Cohort (ULC)</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -2965,6 +2980,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                   </select>
                 </div>
               </div>
+
+              {/* YouTube Video URL Input & Live Preview (Strict Admin Access Control) */}
+              {isSuperAdmin ? (
+                <div className="space-y-2 p-3.5 rounded-2xl bg-red-50/60 dark:bg-red-950/20 border border-red-200/60 dark:border-red-900/40">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 text-xs">
+                      <Video className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                      YouTube Video Link / URL (Embedded on Main Page)
+                    </label>
+                    <span className="text-[10px] font-bold text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-950/60 px-2 py-0.5 rounded-full border border-red-200 dark:border-red-800">Admin Only</span>
+                  </div>
+                  <input
+                    type="url"
+                    value={methodForm.videoUrl}
+                    onChange={(e) => setMethodForm({ ...methodForm, videoUrl: e.target.value })}
+                    placeholder="e.g. https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                  />
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Paste any standard YouTube video URL. It will automatically render as an interactive, playable video player directly on the main page card.
+                  </p>
+
+                  {methodForm.videoUrl && getYouTubeEmbedUrl(methodForm.videoUrl) && (
+                    <div className="pt-1.5 space-y-1">
+                      <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 block">Live Video Preview:</span>
+                      <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-slate-800 shadow-sm">
+                        <iframe
+                          src={getYouTubeEmbedUrl(methodForm.videoUrl) || ''}
+                          title="Video Preview"
+                          className="w-full h-full"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        ></iframe>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <Lock className="h-4 w-4 text-amber-500" />
+                    <div>
+                      <span className="font-bold text-slate-700 dark:text-slate-200 block">YouTube Video Link</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {methodForm.videoUrl ? 'Configured by Administrator' : 'No video attached'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-2.5 py-1 rounded-full border border-amber-300 dark:border-amber-800">
+                    Admin Controlled
+                  </span>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="font-bold text-slate-450">Implementation Description</label>
@@ -3149,9 +3217,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
                     onChange={(e) => setResourceForm({ ...resourceForm, cohort: e.target.value as any })}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-semibold"
                   >
-                    <option value="All">All Cohorts (General)</option>
-                    <option value="Group A">Group A Only (Advanced)</option>
-                    <option value="Group B">Group B Only (Foundation)</option>
+                    <option value="All">All Students (General)</option>
+                    <option value="Unified Learning Cohort">Unified Learning Cohort (ULC)</option>
                   </select>
                 </div>
                 <div className="space-y-1">

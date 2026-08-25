@@ -424,7 +424,8 @@ router.get('/methods', async (req, res) => {
     const methods = rows.map(r => ({
       ...r,
       tags: JSON.parse(r.tags || '[]'),
-      featured: !!r.featured
+      featured: !!r.featured,
+      videoUrl: r.videoUrl || undefined
     }));
     return res.json(methods);
   } catch (error) {
@@ -434,16 +435,20 @@ router.get('/methods', async (req, res) => {
 });
 
 router.post('/methods', authenticateToken, requirePermission('Manage Teaching Methods'), async (req, res) => {
-  const { id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured } = req.body;
-  if (!id || !name || !cohort || !category) {
-    return res.status(400).json({ error: 'ID, name, cohort, and category are required.' });
+  const { id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured, videoUrl } = req.body;
+  if (!id || !name || !category) {
+    return res.status(400).json({ error: 'ID, name, and category are required.' });
   }
+
+  const finalVideoUrl = videoUrl && typeof videoUrl === 'string' && videoUrl.trim() ? videoUrl.trim() : null;
+
   try {
     const tagStr = JSON.stringify(tags || []);
     const featVal = featured ? 1 : 0;
+    const cohortVal = cohort || 'Unified Learning Cohort';
     await dbRun(
-      'INSERT INTO teaching_methods (id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, name, cohort, implementation || '', expectedOutcome || '', detailedDescription || '', category, tagStr, materialsCount || 0, featVal]
+      'INSERT INTO teaching_methods (id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured, videoUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, name, cohortVal, implementation || '', expectedOutcome || '', detailedDescription || '', category, tagStr, materialsCount || 0, featVal, finalVideoUrl]
     );
     await logActivity(req.user.name, 'Created Teaching Method', `Method "${name}"`, 'Success');
     return res.status(201).json({ message: 'Teaching method added.' });
@@ -455,19 +460,55 @@ router.post('/methods', authenticateToken, requirePermission('Manage Teaching Me
 
 router.put('/methods/:id', authenticateToken, requirePermission('Manage Teaching Methods'), async (req, res) => {
   const { id } = req.params;
-  const { name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured } = req.body;
+  const { name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured, videoUrl } = req.body;
   try {
+    const existing = await dbGet('SELECT * FROM teaching_methods WHERE id = ?', [id]);
+
     const tagStr = JSON.stringify(tags || []);
     const featVal = featured ? 1 : 0;
-    await dbRun(
-      'UPDATE teaching_methods SET name = ?, cohort = ?, implementation = ?, expectedOutcome = ?, detailedDescription = ?, category = ?, tags = ?, materialsCount = ?, featured = ? WHERE id = ?',
-      [name, cohort, implementation, expectedOutcome, detailedDescription, category, tagStr, materialsCount, featVal, id]
-    );
+    const cohortVal = cohort || 'Unified Learning Cohort';
+
+    let finalVideoUrl = existing ? existing.videoUrl : null;
+    if (videoUrl !== undefined) {
+      finalVideoUrl = videoUrl && typeof videoUrl === 'string' && videoUrl.trim() ? videoUrl.trim() : null;
+    }
+
+    if (!existing) {
+      await dbRun(
+        'INSERT INTO teaching_methods (id, name, cohort, implementation, expectedOutcome, detailedDescription, category, tags, materialsCount, featured, videoUrl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, name || 'Teaching Method', cohortVal, implementation || '', expectedOutcome || '', detailedDescription || '', category || 'Innovative', tagStr, materialsCount || 0, featVal, finalVideoUrl]
+      );
+    } else {
+      await dbRun(
+        'UPDATE teaching_methods SET name = ?, cohort = ?, implementation = ?, expectedOutcome = ?, detailedDescription = ?, category = ?, tags = ?, materialsCount = ?, featured = ?, videoUrl = ? WHERE id = ?',
+        [name, cohortVal, implementation, expectedOutcome, detailedDescription, category, tagStr, materialsCount, featVal, finalVideoUrl, id]
+      );
+    }
+
     await logActivity(req.user.name, 'Updated Teaching Method', `Method "${name}"`, 'Success');
-    return res.json({ message: 'Teaching method updated.' });
+    return res.json({ message: 'Teaching method updated.', method: { id, name, cohort: cohortVal, implementation, expectedOutcome, detailedDescription, category, tags: tags || [], materialsCount, featured: !!featVal, videoUrl: finalVideoUrl } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Failed to update teaching method.' });
+  }
+});
+
+// Dedicated Admin-Only Route for YouTube Video Management
+router.put('/methods/:id/video', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  const { videoUrl } = req.body;
+  try {
+    const target = await dbGet('SELECT * FROM teaching_methods WHERE id = ?', [id]);
+    if (!target) {
+      return res.status(404).json({ error: 'Teaching method not found.' });
+    }
+    const cleanUrl = videoUrl ? videoUrl.trim() : null;
+    await dbRun('UPDATE teaching_methods SET videoUrl = ? WHERE id = ?', [cleanUrl, id]);
+    await logActivity(req.user.name, 'Updated Video Link', `Method "${target.name}" YouTube link updated by Admin`, 'Success');
+    return res.json({ message: 'YouTube video link updated successfully.', videoUrl: cleanUrl });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Failed to update video link.' });
   }
 });
 

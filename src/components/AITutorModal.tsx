@@ -15,16 +15,16 @@ export const AITutorModal: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       sender: 'ai',
-      text: 'Greetings! I am your CUTM ECE AI Tutor & Assistant. Supporting Group A (Verilog/MATLAB scripting) & Group B (Step-by-step concept explanations, formulas & hints). How can I assist you?',
+      text: 'Greetings! I am your Dhanekula ECE AI Tutor & Assistant. Supporting the Unified Learning Cohort with Verilog/MATLAB scripting, step-by-step concept explanations, formulas & hints. How can I assist you?',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
 
   const presetPrompts = [
-    'Explain Op-Amp Non-Inverting Feedback (Group B)',
-    'Generate Verilog HDL for 4-bit Binary Counter (Group A)',
-    'Micro Teaching 15-min breakdown of FIR vs IIR (Group B)',
-    'MATLAB Simulink BPSK Modulation setup (Group A)',
+    'Explain Op-Amp Non-Inverting Feedback (Step-by-step)',
+    'Generate Verilog HDL for 4-bit Binary Counter',
+    'Micro Teaching 15-min breakdown of FIR vs IIR',
+    'MATLAB Simulink BPSK Modulation setup',
   ];
 
   if (!isAITutorOpen) return null;
@@ -45,14 +45,14 @@ export const AITutorModal: React.FC = () => {
     setTimeout(() => {
       let responseText = '';
 
-      if (text.toLowerCase().includes('op-amp') || text.toLowerCase().includes('group b')) {
-        responseText = `🤖 **Group B Foundation AI Explanation:**\n\nThink of an Op-Amp in non-inverting feedback like a microphone amplifier:\n- Input enters non-inverting (+) terminal.\n- Feedback gain formula: Gain = 1 + (Rf / R1).\n- Step 1: Identify Rf & R1 resistors.\n- Step 2: Calculate gain. High input impedance is maintained!`;
+      if (text.toLowerCase().includes('op-amp')) {
+        responseText = `🤖 **Op-Amp Non-Inverting Feedback AI Explanation:**\n\nThink of an Op-Amp in non-inverting feedback like a microphone amplifier:\n- Input enters non-inverting (+) terminal.\n- Feedback gain formula: Gain = 1 + (Rf / R1).\n- Step 1: Identify Rf & R1 resistors.\n- Step 2: Calculate gain. High input impedance is maintained!`;
       } else if (text.toLowerCase().includes('verilog') || text.toLowerCase().includes('counter')) {
-        responseText = `💻 **Group A Advanced AI Verilog Script:**\n\`\`\`verilog\nmodule binary_counter_4bit (\n    input wire clk,\n    input wire reset,\n    output reg [3:0] count\n);\n    always @(posedge clk or posedge reset) begin\n        if (reset)\n            count <= 4'b0000;\n        else\n            count <= count + 1'b1;\n    end\nendmodule\n\`\`\n*Implementation Tip:* Test using ModelSim/Vivado testbench with 10ns clock period.`;
+        responseText = `💻 **AI Verilog Script:**\n\`\`\`verilog\nmodule binary_counter_4bit (\n    input wire clk,\n    input wire reset,\n    output reg [3:0] count\n);\n    always @(posedge clk or posedge reset) begin\n        if (reset)\n            count <= 4'b0000;\n        else\n            count <= count + 1'b1;\n    end\nendmodule\n\`\`\n*Implementation Tip:* Test using ModelSim/Vivado testbench with 10ns clock period.`;
       } else if (text.toLowerCase().includes('matlab') || text.toLowerCase().includes('bpsk')) {
-        responseText = `🔬 **Group A Simulation Guide:**\nFor BPSK modulation in MATLAB Simulink:\n1. Use Bernoulli Binary Generator.\n2. Connect to BPSK Modulator Baseband block.\n3. Pass through AWGN Channel block.\n4. Observe constellation diagram on Scope.`;
+        responseText = `🔬 **Simulation Guide:**\nFor BPSK modulation in MATLAB Simulink:\n1. Use Bernoulli Binary Generator.\n2. Connect to BPSK Modulator Baseband block.\n3. Pass through AWGN Channel block.\n4. Observe constellation diagram on Scope.`;
       } else {
-        responseText = `💡 **CUTM AI Tutor Response:**\n\nGreat courseware query! Based on your cohort:\n- For concept mastery, break into 3 micro-steps (Chunk Learning).\n- Would you like a numerical worked example or simulation file?`;
+        responseText = `💡 **Dhanekula AI Tutor Response:**\n\nGreat courseware query for the Unified Learning Cohort!\n- For concept mastery, break into 3 micro-steps (Chunk Learning).\n- Would you like a numerical worked example or simulation file?`;
       }
 
       setMessages((prev) => [
@@ -77,8 +77,8 @@ export const AITutorModal: React.FC = () => {
               <Bot className="h-6 w-6 text-cyberRed-400" />
             </div>
             <div>
-              <h3 className="text-base font-black text-white">CUTM AI Tutor Studio</h3>
-              <p className="text-xs text-cyberRed-400">Supporting Group A & Group B Differentiated Learning</p>
+              <h3 className="text-base font-black text-white">Dhanekula AI Tutor Studio</h3>
+              <p className="text-xs text-cyberRed-400">Supporting Unified Learning Cohort (ULC)</p>
             </div>
           </div>
 
