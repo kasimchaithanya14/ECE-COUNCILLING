@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { AdminUser, AuditLog, TeachingMethod, CoursewareResource, Student, MediaSubmission, CounsellingSession } from '../types';
+import { AdminUser, AuditLog, TeachingMethod, CoursewareResource, Student, MediaSubmission, CounsellingSession, TeachingTask, TeachingSubmission } from '../types';
 import { getYouTubeEmbedUrl } from './TeachingMethodsGrid';
 import {
   GraduationCap,
@@ -34,7 +34,23 @@ import {
   Key,
   ShieldCheck,
   ShieldAlert,
-  Video
+  Video,
+  Upload,
+  FileSpreadsheet,
+  File,
+  CheckCircle2,
+  CheckCircle,
+  Timer,
+  AlertCircle,
+  Building2,
+  Layers,
+  Award,
+  Send,
+  FileUp,
+  Paperclip,
+  Share2,
+  User,
+  Sparkles
 } from 'lucide-react';
 
 interface AdminDashboardProps {
@@ -84,7 +100,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     addCounsellingSession,
     updateCounsellingSession,
     deleteCounsellingSession,
-    changePassword
+    changePassword,
+    // Innovative Teaching–Learning Methods Workflow
+    teachingTasks,
+    teachingSubmissions,
+    trackingSubmissions,
+    fetchTeachingTasks,
+    createTeachingTask,
+    updateTeachingTask,
+    deleteTeachingTask,
+    fetchTeachingSubmissions,
+    fetchTrackingSubmissions,
+    submitTeachingMethod,
+    approveTeachingSubmission,
+    rejectTeachingSubmission,
+    deleteTeachingSubmission
   } = useApp();
 
   const isSuperAdmin = adminUser?.role === 'SUPER_ADMIN';
@@ -94,6 +124,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
   
   // Mobile UI States
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Innovative Teaching Methods Module Sub-Tabs
+  const [methodsViewTab, setMethodsViewTab] = useState<'tracking' | 'tasks' | 'submit' | 'history' | 'catalog'>(
+    isSuperAdmin ? 'tracking' : 'tasks'
+  );
+
+  // Super Admin Task Modal States
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editingTask, setEditingTask] = useState<TeachingTask | null>(null);
+  const [taskAssignMode, setTaskAssignMode] = useState<'single' | 'selective' | 'all'>('single');
+  const [selectedTaskSubAdminIds, setSelectedTaskSubAdminIds] = useState<number[]>([]);
+  const [taskSubAdminSearch, setTaskSubAdminSearch] = useState('');
+  const [taskForm, setTaskForm] = useState({
+    sub_admin_id: '',
+    topic: '',
+    description: '',
+    department: 'ECE',
+    date: new Date().toISOString().split('T')[0],
+    time: '10:30 AM',
+    no_of_faculty: 1
+  });
+  const [isSavingTask, setIsSavingTask] = useState(false);
+
+  // Sub Admin Task Submission Modal States
+  const [showSubmissionModal, setShowSubmissionModal] = useState(false);
+  const [selectedTaskIdForSubmit, setSelectedTaskIdForSubmit] = useState<string>('none');
+  const [submissionForm, setSubmissionForm] = useState({
+    topic: '',
+    date: new Date().toISOString().split('T')[0],
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    no_of_faculty: 1,
+    department: 'ECE',
+    description: ''
+  });
+  const [submissionFile, setSubmissionFile] = useState<File | null>(null);
+  const [isSubmittingMethod, setIsSubmittingMethod] = useState(false);
+
+  // Super Admin Review / Tracking Action States
+  const [previewTrackingSubmission, setPreviewTrackingSubmission] = useState<TeachingSubmission | null>(null);
+  const [approvingSubId, setApprovingSubId] = useState<number | null>(null);
+  const [approvalFeedback, setApprovalFeedback] = useState('Approved for Public Showcase');
+  const [rejectingSubId, setRejectingSubId] = useState<number | null>(null);
+  const [rejectionFeedback, setRejectionFeedback] = useState('');
+
+  // Filters for Tracking and Tasks
+  const [trackingSearch, setTrackingSearch] = useState('');
+  const [trackingStatusFilter, setTrackingStatusFilter] = useState('All');
+  const [trackingDeptFilter, setTrackingDeptFilter] = useState('All');
 
   // Search & Filters
   const [logSearch, setLogSearch] = useState('');
@@ -838,7 +916,233 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
     });
   };
 
+  // ==========================================
+  // INNOVATIVE TEACHING–LEARNING METHODS HANDLERS
+  // ==========================================
+
+  const openAddTaskModal = () => {
+    setEditingTask(null);
+    setTaskAssignMode('single');
+    setSelectedTaskSubAdminIds(subAdmins.map(s => s.id));
+    setTaskSubAdminSearch('');
+    setTaskForm({
+      sub_admin_id: subAdmins.length > 0 ? String(subAdmins[0].id) : '',
+      topic: '',
+      description: '',
+      department: 'ECE',
+      date: new Date().toISOString().split('T')[0],
+      time: '10:30 AM',
+      no_of_faculty: 1
+    });
+    setShowTaskModal(true);
+  };
+
+  const openEditTaskModal = (task: TeachingTask) => {
+    setEditingTask(task);
+    setTaskAssignMode('single');
+    setTaskForm({
+      sub_admin_id: String(task.sub_admin_id),
+      topic: task.topic,
+      description: task.description || '',
+      department: task.department || 'ECE',
+      date: task.date,
+      time: task.time,
+      no_of_faculty: task.no_of_faculty || 1
+    });
+    setShowTaskModal(true);
+  };
+
+  const handleSaveTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskForm.topic || !taskForm.date || !taskForm.time) {
+      showToast('Please provide Topic, Target Date, and Target Time.');
+      return;
+    }
+
+    if (!editingTask) {
+      if (taskAssignMode === 'selective' && selectedTaskSubAdminIds.length === 0) {
+        showToast('Please select at least one Faculty Coordinator.');
+        return;
+      }
+      if (taskAssignMode === 'single' && !taskForm.sub_admin_id) {
+        showToast('Please select a Sub-Admin Coordinator.');
+        return;
+      }
+    }
+
+    setIsSavingTask(true);
+    let res: any;
+    if (editingTask) {
+      res = await updateTeachingTask(editingTask.id, {
+        sub_admin_id: parseInt(taskForm.sub_admin_id, 10),
+        topic: taskForm.topic,
+        description: taskForm.description,
+        department: taskForm.department,
+        date: taskForm.date,
+        time: taskForm.time,
+        no_of_faculty: taskForm.no_of_faculty
+      });
+    } else {
+      if (taskAssignMode === 'all') {
+        res = await createTeachingTask({
+          assign_all: true,
+          topic: taskForm.topic,
+          description: taskForm.description,
+          department: taskForm.department,
+          date: taskForm.date,
+          time: taskForm.time,
+          no_of_faculty: taskForm.no_of_faculty
+        });
+      } else if (taskAssignMode === 'selective') {
+        res = await createTeachingTask({
+          sub_admin_ids: selectedTaskSubAdminIds,
+          topic: taskForm.topic,
+          description: taskForm.description,
+          department: taskForm.department,
+          date: taskForm.date,
+          time: taskForm.time,
+          no_of_faculty: taskForm.no_of_faculty
+        });
+      } else {
+        res = await createTeachingTask({
+          sub_admin_id: parseInt(taskForm.sub_admin_id, 10),
+          topic: taskForm.topic,
+          description: taskForm.description,
+          department: taskForm.department,
+          date: taskForm.date,
+          time: taskForm.time,
+          no_of_faculty: taskForm.no_of_faculty
+        });
+      }
+    }
+    setIsSavingTask(false);
+
+    if (res.success) {
+      setShowTaskModal(false);
+      setEditingTask(null);
+    } else {
+      alert(res.error || 'Failed to save task.');
+    }
+  };
+
+  const handleDeleteTask = async (taskId: number, topic: string) => {
+    if (confirm(`Are you sure you want to delete assigned task "${topic}"?`)) {
+      await deleteTeachingTask(taskId);
+    }
+  };
+
+  const openSubmitTaskModal = (task?: TeachingTask) => {
+    if (task) {
+      setSelectedTaskIdForSubmit(String(task.id));
+      setSubmissionForm({
+        topic: task.topic,
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        no_of_faculty: task.no_of_faculty || 1,
+        department: task.department || 'ECE',
+        description: task.description ? `Implementation based on guidelines: ${task.description}\n\n` : ''
+      });
+    } else {
+      setSelectedTaskIdForSubmit('none');
+      setSubmissionForm({
+        topic: '',
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        no_of_faculty: 1,
+        department: 'ECE',
+        description: ''
+      });
+    }
+    setSubmissionFile(null);
+    setShowSubmissionModal(true);
+  };
+
+  const handleMethodSubmissionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!submissionForm.topic || !submissionForm.description || !submissionFile) {
+      showToast('Topic, Method Description, and an Uploaded File are required.');
+      return;
+    }
+
+    setIsSubmittingMethod(true);
+    const formData = new FormData();
+    if (selectedTaskIdForSubmit && selectedTaskIdForSubmit !== 'none') {
+      formData.append('task_id', selectedTaskIdForSubmit);
+    }
+    formData.append('topic', submissionForm.topic);
+    formData.append('date', submissionForm.date);
+    formData.append('time', submissionForm.time);
+    formData.append('no_of_faculty', String(submissionForm.no_of_faculty));
+    formData.append('department', submissionForm.department);
+    formData.append('description', submissionForm.description);
+    formData.append('file', submissionFile);
+
+    const res = await submitTeachingMethod(formData);
+    setIsSubmittingMethod(false);
+
+    if (res.success) {
+      setShowSubmissionModal(false);
+      setSubmissionFile(null);
+      setSubmissionForm({
+        topic: '',
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        no_of_faculty: 1,
+        department: 'ECE',
+        description: ''
+      });
+      setMethodsViewTab('history');
+    } else {
+      alert(res.error || 'Failed to submit teaching method.');
+    }
+  };
+
+  const handleApproveSubmission = async (subId: number) => {
+    const res = await approveTeachingSubmission(subId, approvalFeedback);
+    if (res.success) {
+      setApprovingSubId(null);
+      if (previewTrackingSubmission?.id === subId) {
+        setPreviewTrackingSubmission(null);
+      }
+    } else {
+      alert(res.error || 'Failed to approve submission.');
+    }
+  };
+
+  const handleRejectSubmission = async (subId: number) => {
+    if (!rejectionFeedback.trim()) {
+      alert('Please provide feedback explaining the reason for rejection.');
+      return;
+    }
+    const res = await rejectTeachingSubmission(subId, rejectionFeedback);
+    if (res.success) {
+      setRejectingSubId(null);
+      if (previewTrackingSubmission?.id === subId) {
+        setPreviewTrackingSubmission(null);
+      }
+    } else {
+      alert(res.error || 'Failed to reject submission.');
+    }
+  };
+
+  const handleDeleteSubmissionAction = async (subId: number, topic: string) => {
+    if (confirm(`Are you sure you want to permanently delete submission "${topic}"?`)) {
+      await deleteTeachingSubmission(subId);
+    }
+  };
+
   // Filtered lists
+  const filteredTrackingList = trackingSubmissions.filter(item => {
+    const matchesSearch =
+      trackingSearch === '' ||
+      item.topic.toLowerCase().includes(trackingSearch.toLowerCase()) ||
+      (item.sub_admin_name && item.sub_admin_name.toLowerCase().includes(trackingSearch.toLowerCase())) ||
+      (item.description && item.description.toLowerCase().includes(trackingSearch.toLowerCase()));
+    const matchesStatus = trackingStatusFilter === 'All' || item.status === trackingStatusFilter;
+    const matchesDept = trackingDeptFilter === 'All' || item.department === trackingDeptFilter;
+    return matchesSearch && matchesStatus && matchesDept;
+  });
+
   const filteredLogs = auditLogs.filter(log =>
     log.user.toLowerCase().includes(logSearch.toLowerCase()) ||
     log.action.toLowerCase().includes(logSearch.toLowerCase()) ||
@@ -936,14 +1240,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
           {hasPermission('Manage Teaching Methods') && (
             <button
               onClick={() => { setActiveAdminTab('methods'); setSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
                 activeAdminTab === 'methods'
                   ? 'bg-dhanekula-royal text-white shadow-md'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
-              <BookOpen className="h-4.5 w-4.5" />
-              <span>Teaching Methods</span>
+              <div className="flex items-center gap-3">
+                <BookOpen className="h-4.5 w-4.5" />
+                <span>Teaching Methods</span>
+              </div>
+              {!isSuperAdmin && teachingTasks.filter(t => t.status === 'Pending').length > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-500 text-slate-950 animate-pulse">
+                  {teachingTasks.filter(t => t.status === 'Pending').length} Due
+                </span>
+              )}
             </button>
           )}
 
@@ -1092,57 +1403,259 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
               
               <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
                 <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-xs font-bold uppercase tracking-wider">Teaching Methods</span>
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {isSuperAdmin ? 'Teaching Methods' : 'Tasks Assigned to You'}
+                  </span>
                   <BookOpen className="h-5 w-5 text-dhanekula-500" />
                 </div>
                 <div className="text-3xl font-black text-slate-900 dark:text-white mt-2">
-                  {teachingMethods.length}
+                  {isSuperAdmin ? teachingMethods.length : teachingTasks.length}
                 </div>
                 <div className="text-[10px] font-bold text-slate-500 mt-1 uppercase">
-                  Differentiated Syllabus
+                  {isSuperAdmin ? 'Differentiated Syllabus' : 'Main Admin Directives'}
                 </div>
               </div>
 
               <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
-                <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-xs font-bold uppercase tracking-wider">Student Directory</span>
-                  <Users className="h-5 w-5 text-emerald-500" />
+                <div className="flex items-center justify-between text-amber-500">
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {isSuperAdmin ? 'Student Directory' : 'Pending Directives'}
+                  </span>
+                  {isSuperAdmin ? <Users className="h-5 w-5 text-emerald-500" /> : <Timer className="h-5 w-5 text-amber-500" />}
                 </div>
-                <div className="text-3xl font-black text-slate-900 dark:text-white mt-2">
-                  {students.length}
+                <div className={`text-3xl font-black mt-2 ${isSuperAdmin ? 'text-slate-900 dark:text-white' : 'text-amber-500'}`}>
+                  {isSuperAdmin ? students.length : teachingTasks.filter(t => t.status === 'Pending').length}
                 </div>
                 <div className="text-[10px] font-bold text-slate-500 mt-1 uppercase">
-                  Active B.Tech ECE
+                  {isSuperAdmin ? 'Active B.Tech ECE' : 'Action Required to Complete'}
                 </div>
               </div>
 
               <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
-                <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-xs font-bold uppercase tracking-wider">Library Files</span>
-                  <FileText className="h-5 w-5 text-amber-500" />
+                <div className="flex items-center justify-between text-blue-500">
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {isSuperAdmin ? 'Library Files' : 'Submissions Under Review'}
+                  </span>
+                  {isSuperAdmin ? <FileText className="h-5 w-5 text-amber-500" /> : <Clock className="h-5 w-5 text-blue-500" />}
                 </div>
-                <div className="text-3xl font-black text-slate-900 dark:text-white mt-2">
-                  {resources.length}
+                <div className={`text-3xl font-black mt-2 ${isSuperAdmin ? 'text-slate-900 dark:text-white' : 'text-blue-500'}`}>
+                  {isSuperAdmin ? resources.length : teachingSubmissions.filter(s => s.status === 'Submitted').length}
                 </div>
                 <div className="text-[10px] font-bold text-slate-500 mt-1 uppercase">
-                  Uploaded Digital Assets
+                  {isSuperAdmin ? 'Uploaded Digital Assets' : 'Awaiting Super Admin Approval'}
                 </div>
               </div>
 
               <div className="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
-                <div className="flex items-center justify-between text-slate-400">
-                  <span className="text-xs font-bold uppercase tracking-wider">Sub-Admins</span>
-                  <Lock className="h-5 w-5 text-indigo-500" />
+                <div className="flex items-center justify-between text-emerald-500">
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {isSuperAdmin ? 'Sub-Admins' : 'Approved & Showcased'}
+                  </span>
+                  {isSuperAdmin ? <Lock className="h-5 w-5 text-indigo-500" /> : <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
                 </div>
-                <div className="text-3xl font-black text-slate-900 dark:text-white mt-2">
-                  {isSuperAdmin ? subAdmins.length : 'Restricted'}
+                <div className={`text-3xl font-black mt-2 ${isSuperAdmin ? 'text-slate-900 dark:text-white' : 'text-emerald-500'}`}>
+                  {isSuperAdmin ? subAdmins.length : teachingSubmissions.filter(s => s.status === 'Approved').length}
                 </div>
                 <div className="text-[10px] font-bold text-slate-500 mt-1 uppercase">
-                  Authorized Assistants
+                  {isSuperAdmin ? 'Authorized Assistants' : 'Live on Public Portal'}
                 </div>
               </div>
 
             </div>
+
+            {/* SUB-ADMIN SHOWCASE: TASKS ASSIGNED BY MAIN ADMIN */}
+            {!isSuperAdmin && (
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                        <Layers className="h-5 w-5" />
+                      </span>
+                      <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight uppercase">
+                        Teaching Directives Assigned to You by Main Admin
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Innovative Teaching–Learning Methods delegated by Institutional Leadership. Complete directives and submit deliverables here.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setActiveAdminTab('methods');
+                        setMethodsViewTab('tasks');
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5"
+                    >
+                      <Layers className="h-3.5 w-3.5 text-blue-500" />
+                      <span>Methods Tab ({teachingTasks.length})</span>
+                    </button>
+                    <button
+                      onClick={() => openSubmitTaskModal()}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md transition-all flex items-center gap-1.5"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      <span>New Method Upload</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Directive Cards Grid */}
+                {teachingTasks.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 dark:bg-slate-850/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                    <CheckCircle className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      All caught up! No pending teaching directives assigned to your account.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {teachingTasks.map((task) => {
+                      const isApproved = task.status === 'Approved' || task.submission_status === 'Approved';
+                      const isSubmitted = task.status === 'Submitted' || task.submission_status === 'Submitted';
+                      const isPending = !isApproved && !isSubmitted;
+
+                      return (
+                        <div
+                          key={task.id}
+                          className={`p-5 rounded-2xl border transition-all flex flex-col justify-between space-y-3 ${
+                            isPending
+                              ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50 shadow-xs'
+                              : isSubmitted
+                              ? 'bg-blue-50/40 dark:bg-blue-950/20 border-blue-200/80 dark:border-blue-900/50'
+                              : 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200/80 dark:border-emerald-900/50'
+                          }`}
+                        >
+                          <div className="space-y-2.5">
+                            {/* Header Tags & Status */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-white/80 dark:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                  Dept: {task.department || 'ECE'}
+                                </span>
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white/80 dark:bg-slate-800 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {task.no_of_faculty} Faculty
+                                </span>
+                              </div>
+
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                isApproved
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                  : isSubmitted
+                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                              }`}>
+                                {isApproved ? 'Approved & Showcased' : isSubmitted ? 'Submitted (In Review)' : 'Pending Action'}
+                              </span>
+                            </div>
+
+                            {/* Topic Title */}
+                            <div>
+                              <h4 className="text-sm font-black text-slate-900 dark:text-white leading-snug">
+                                {task.topic}
+                              </h4>
+                              <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400 mt-1">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3 text-blue-500" />
+                                  Target Deadline: {task.date} {task.time}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Directive Guidelines */}
+                            {task.description && (
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                  Main Admin Instructions:
+                                </span>
+                                <p className="text-xs text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60 line-clamp-3 leading-relaxed">
+                                  {task.description}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Deliverable info if submitted */}
+                            {(isSubmitted || isApproved) && (task.submission_description || task.submission_file_path) && (
+                              <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1.5 text-xs">
+                                <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between text-[11px]">
+                                  <span>Your Submitted Deliverable</span>
+                                  <span className="text-[10px] text-slate-400">{task.submission_date}</span>
+                                </div>
+                                {task.submission_description && (
+                                  <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                                    {task.submission_description}
+                                  </p>
+                                )}
+                                {task.submission_file_path && (
+                                  <div className="flex items-center justify-between pt-1">
+                                    <span className="text-[10px] font-bold text-slate-500 truncate max-w-[200px]">
+                                      📎 {task.submission_file_name || 'Deliverable Document'}
+                                    </span>
+                                    <a
+                                      href={task.submission_file_path}
+                                      download={task.submission_file_name || 'deliverable.pdf'}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2 py-0.5 rounded text-[10px] font-black bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                                    >
+                                      Download
+                                    </a>
+                                  </div>
+                                )}
+                                {task.submission_feedback && (
+                                  <div className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/40 p-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                                    Admin Feedback: {task.submission_feedback}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Action Button */}
+                          <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800">
+                            {isPending ? (
+                              <button
+                                onClick={() => openSubmitTaskModal(task)}
+                                className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                              >
+                                <Upload className="h-4 w-4" />
+                                <span>⚡ Complete & Submit Work for this Directive</span>
+                              </button>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => openSubmitTaskModal(task)}
+                                  className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 transition-all flex items-center justify-center gap-1.5"
+                                >
+                                  <Edit className="h-3.5 w-3.5 text-blue-500" />
+                                  <span>Update / Resubmit Work</span>
+                                </button>
+                                {task.submission_file_path && (
+                                  <a
+                                    href={task.submission_file_path}
+                                    download={task.submission_file_name || 'deliverable.pdf'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs transition-all"
+                                    title="Download File"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Welcome banner info */}
             <div className="p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-dhanekula-navy to-slate-900 border border-slate-850 text-white shadow-lg flex flex-col md:flex-row items-center justify-between gap-6">
@@ -1363,129 +1876,858 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
           </div>
         )}
 
-        {/* ==========================================
-            3. TAB: TEACHING METHODS (With API sync)
-            ========================================== */}
+        {/* =========================================================================
+            3. TAB: INNOVATIVE TEACHING–LEARNING METHODS MODULE (Super Admin & Sub Admin)
+            ========================================================================= */}
         {activeAdminTab === 'methods' && hasPermission('Manage Teaching Methods') && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in">
             
-            {/* Header Actions */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="relative w-full sm:max-w-xs group">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-hover:text-dhanekula-royal" />
-                <input
-                  type="text"
-                  value={methodSearch}
-                  onChange={(e) => setMethodSearch(e.target.value)}
-                  placeholder="Filter methods by name..."
-                  className="w-full pl-9 pr-4 py-2 text-xs rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-dhanekula-500/50"
-                />
-              </div>
+            {/* Top Module Sub-Nav Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {isSuperAdmin ? (
+                  <>
+                    <button
+                      onClick={() => setMethodsViewTab('tracking')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                        methodsViewTab === 'tracking'
+                          ? 'bg-dhanekula-royal text-white shadow-md'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <ClipboardList className="h-4 w-4" />
+                      <span>Tracking Table (Submissions)</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-bold ml-0.5">
+                        {trackingSubmissions.length}
+                      </span>
+                    </button>
 
-              {hasPermission('Manage Teaching Methods') && (
+                    <button
+                      onClick={() => setMethodsViewTab('tasks')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                        methodsViewTab === 'tasks'
+                          ? 'bg-dhanekula-royal text-white shadow-md'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <Layers className="h-4 w-4" />
+                      <span>Assigned Tasks</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold ml-0.5">
+                        {teachingTasks.length}
+                      </span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setMethodsViewTab('tasks')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                        methodsViewTab === 'tasks'
+                          ? 'bg-dhanekula-royal text-white shadow-md'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <Layers className="h-4 w-4" />
+                      <span>Tasks Given by Super Admin</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-bold ml-0.5">
+                        {teachingTasks.filter(t => t.status === 'Pending').length} Pending
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => openSubmitTaskModal()}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-md transition-all scale-102"
+                    >
+                      <Upload className="h-4 w-4" />
+                      <span>+ Upload Teaching Method & Total Work</span>
+                    </button>
+
+                    <button
+                      onClick={() => setMethodsViewTab('history')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                        methodsViewTab === 'history'
+                          ? 'bg-dhanekula-royal text-white shadow-md'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <Clock className="h-4 w-4" />
+                      <span>My Uploaded Methods</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold ml-0.5">
+                        {teachingSubmissions.length}
+                      </span>
+                    </button>
+                  </>
+                )}
+
                 <button
-                  onClick={openAddMethodModal}
-                  className="px-4 py-2 rounded-2xl bg-dhanekula-royal text-white font-bold text-xs uppercase tracking-wider shadow-md hover:bg-dhanekula-600 btn-micro-interaction flex items-center gap-1.5 shrink-0"
+                  onClick={() => setMethodsViewTab('catalog')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                    methodsViewTab === 'catalog'
+                      ? 'bg-dhanekula-royal text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
                 >
-                  <Plus className="h-4 w-4" />
-                  <span>Add Method</span>
+                  <BookOpen className="h-4 w-4" />
+                  <span>Curriculum Catalog (20)</span>
                 </button>
-              )}
-            </div>
+              </div>
 
-            {/* Methods Table */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    <tr>
-                      <th className="px-6 py-4">Method Name</th>
-                      <th className="px-6 py-4">Cohort</th>
-                      <th className="px-6 py-4">Category</th>
-                      <th className="px-6 py-4">Video Link</th>
-                      <th className="px-6 py-4">Objective / Expected Outcome</th>
-                      <th className="px-6 py-4">Tags</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
-                    {filteredMethods.map((m) => (
-                      <tr key={m.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-slate-900 dark:text-white block">{m.name}</span>
-                          <span className="block text-[10px] text-slate-450 mt-0.5 truncate max-w-[200px]">{m.implementation}</span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-dhanekula-royal/10 text-dhanekula-royal dark:bg-dhanekula-navy/60 dark:text-dhanekula-300 border border-dhanekula-royal/20">
-                            Unified (ULC)
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-slate-650 dark:text-slate-350">
-                          {m.category}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {m.videoUrl ? (
-                            <a
-                              href={m.videoUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-[10px] font-bold hover:bg-red-100 transition-colors"
-                              title={m.videoUrl}
-                            >
-                              <Video className="h-3 w-3" />
-                              <span>YouTube Video</span>
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 italic">No video</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-slate-650 dark:text-slate-350 font-medium max-w-[220px] truncate">
-                          {m.expectedOutcome}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-wrap gap-1 max-w-[180px]">
-                            {m.tags.map((tag, idx) => (
-                              <span key={idx} className="px-1.5 py-0.5 rounded-lg bg-slate-105 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-medium border border-slate-200/50 dark:border-slate-700/50">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {hasPermission('Manage Teaching Methods') && (
-                              <button
-                                onClick={() => openEditMethodModal(m)}
-                                className="p-1.5 text-slate-500 hover:text-dhanekula-600 dark:hover:text-dhanekula-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                title="Edit Method"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </button>
-                            )}
-                            {hasPermission('Manage Teaching Methods') && (
-                              <button
-                                onClick={() => deleteMethod(m.id)}
-                                className="p-1.5 text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
-                                title="Delete Method"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredMethods.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-6 py-8 text-center text-slate-450 italic">
-                          No teaching methods match your search.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                {isSuperAdmin && (
+                  <button
+                    onClick={openAddTaskModal}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Assign New Task</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    fetchTeachingTasks();
+                    fetchTeachingSubmissions();
+                    if (isSuperAdmin) fetchTrackingSubmissions();
+                    showToast('Refreshed teaching methods workflow data.');
+                  }}
+                  className="p-2 text-slate-500 hover:text-dhanekula-royal hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                  title="Refresh Data"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </button>
               </div>
             </div>
+
+            {/* Sub-Admin Banner Callout */}
+            {!isSuperAdmin && (
+              <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-900 via-slate-900 to-indigo-950 text-white border border-emerald-800/40 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Sub-Admin Teaching Methodology Section
+                    </span>
+                    <span className="text-xs text-slate-300 font-bold">
+                      Logged in as: {adminUser?.name} (@{adminUser?.username})
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-black tracking-tight">
+                    Upload Innovative Teaching Methods & Task Deliverables
+                  </h3>
+                  <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                    Review pedagogical tasks assigned to you by the Super Admin, execute your classroom/lab innovations, and upload your full method details, topic, and documentation here.
+                  </p>
+                </div>
+                <button
+                  onClick={() => openSubmitTaskModal()}
+                  className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg hover:scale-105 transition-all shrink-0 flex items-center gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  <span>Upload Method Details</span>
+                </button>
+              </div>
+            )}
+
+            {/* Quick Metrics Stats Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                  {isSuperAdmin ? 'Total Assigned Tasks' : 'Tasks Assigned to You'}
+                </span>
+                <span className="text-2xl font-black text-slate-900 dark:text-white mt-1 block">
+                  {teachingTasks.length}
+                </span>
+              </div>
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider block">
+                  Pending Submissions
+                </span>
+                <span className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1 block">
+                  {teachingTasks.filter(t => t.status === 'Pending').length}
+                </span>
+              </div>
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider block">
+                  {isSuperAdmin ? 'Awaiting Review' : 'Under Review'}
+                </span>
+                <span className="text-2xl font-black text-blue-600 dark:text-blue-400 mt-1 block">
+                  {(isSuperAdmin ? trackingSubmissions : teachingSubmissions).filter(s => s.status === 'Submitted').length}
+                </span>
+              </div>
+              <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider block">
+                  Approved & Showcased
+                </span>
+                <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1 block">
+                  {(isSuperAdmin ? trackingSubmissions : teachingSubmissions).filter(s => s.status === 'Approved').length}
+                </span>
+              </div>
+            </div>
+
+            {/* =========================================================================
+                VIEW 1: SUPER ADMIN TRACKING TABLE (With all 8 required columns)
+                ========================================================================= */}
+            {isSuperAdmin && methodsViewTab === 'tracking' && (
+              <div className="space-y-4">
+                
+                {/* Tracking Search & Status Filters */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <div className="relative flex-1 min-w-[220px]">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={trackingSearch}
+                      onChange={(e) => setTrackingSearch(e.target.value)}
+                      placeholder="Search tracking table by topic, Sub-Admin username, keyword..."
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-dhanekula-royal"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={trackingStatusFilter}
+                      onChange={(e) => setTrackingStatusFilter(e.target.value)}
+                      className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200"
+                    >
+                      <option value="All">All Statuses</option>
+                      <option value="Submitted">Submitted (Needs Review)</option>
+                      <option value="Approved">Approved (Public Live)</option>
+                      <option value="Pending">Pending (Not Yet Submitted)</option>
+                      <option value="Rejected">Rejected</option>
+                    </select>
+
+                    <select
+                      value={trackingDeptFilter}
+                      onChange={(e) => setTrackingDeptFilter(e.target.value)}
+                      className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-800 dark:text-slate-200"
+                    >
+                      <option value="All">All Departments</option>
+                      <option value="ECE">ECE</option>
+                      <option value="EEE">EEE</option>
+                      <option value="CSE">CSE</option>
+                      <option value="Mechanical">Mechanical</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* TRACKING TABLE WITH ALL MANDATED COLUMNS */}
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <tr>
+                          <th className="py-4 px-4 text-center w-14">1. S.No</th>
+                          <th className="py-4 px-4 whitespace-nowrap">2. Date of Upload</th>
+                          <th className="py-4 px-4 whitespace-nowrap">3. Time of Upload</th>
+                          <th className="py-4 px-5">4. Topic Name & Work Details</th>
+                          <th className="py-4 px-4 text-center whitespace-nowrap">5. No. of Faculty Done</th>
+                          <th className="py-4 px-5 whitespace-nowrap">6. Done by User Name / Dept</th>
+                          <th className="py-4 px-4 whitespace-nowrap">7. Status</th>
+                          <th className="py-4 px-4 text-right whitespace-nowrap">8. Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                        {filteredTrackingList.map((sub, index) => (
+                          <tr key={sub.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/20 transition-colors">
+                            
+                            {/* Column 1: S.No */}
+                            <td className="py-4 px-4 text-center font-extrabold text-slate-400">
+                              #{sub.s_no || index + 1}
+                            </td>
+
+                            {/* Column 2: Date of Upload */}
+                            <td className="py-4 px-4 whitespace-nowrap font-bold text-slate-900 dark:text-white">
+                              <span className="flex items-center gap-1.5">
+                                <Calendar className="h-3.5 w-3.5 text-blue-500" />
+                                {sub.date}
+                              </span>
+                            </td>
+
+                            {/* Column 3: Time of Upload */}
+                            <td className="py-4 px-4 whitespace-nowrap font-semibold text-slate-500 dark:text-slate-400 text-[11px]">
+                              <span className="flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5 text-slate-400" />
+                                {sub.time || '10:00 AM'}
+                              </span>
+                            </td>
+
+                            {/* Column 4: Topic Name & Total Work Details */}
+                            <td className="py-4 px-5 max-w-xs">
+                              <span className="font-extrabold text-slate-900 dark:text-white block text-xs">
+                                {sub.topic}
+                              </span>
+                              {sub.description && (
+                                <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5">
+                                  {sub.description}
+                                </p>
+                              )}
+                            </td>
+
+                            {/* Column 5: No of Faculty Done */}
+                            <td className="py-4 px-4 text-center whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                <Users className="h-3.5 w-3.5" />
+                                {sub.no_of_faculty} Faculty
+                              </span>
+                            </td>
+
+                            {/* Column 6: Done by User Name & Department */}
+                            <td className="py-4 px-5 whitespace-nowrap">
+                              <div className="font-bold text-slate-900 dark:text-white text-xs">
+                                {sub.sub_admin_name || 'Faculty Lead'}
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                  @{sub.sub_admin_username || 'faculty'}
+                                </span>
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                  {sub.department || 'ECE'}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Column 7: Status */}
+                            <td className="py-4 px-4 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                sub.status === 'Approved'
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                                  : sub.status === 'Rejected'
+                                  ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-400 border-red-200 dark:border-red-800'
+                                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                              }`}>
+                                {sub.status === 'Approved' && <CheckCircle2 className="h-3 w-3" />}
+                                {sub.status === 'Rejected' && <AlertCircle className="h-3 w-3" />}
+                                {sub.status === 'Submitted' && <Clock className="h-3 w-3" />}
+                                {sub.status}
+                              </span>
+                            </td>
+
+                            {/* Column 8: Action (View / Download Uploaded File / Approve) */}
+                            <td className="py-4 px-4 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1.5">
+                                
+                                {/* View Total Work Action */}
+                                <button
+                                  onClick={() => setPreviewTrackingSubmission(sub)}
+                                  className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-all"
+                                  title="View Total Work & Details"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+
+                                {/* Download File Action */}
+                                {sub.file_path && (
+                                  <a
+                                    href={sub.file_path}
+                                    download={sub.file_name || 'teaching-method-resource.pdf'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-all"
+                                    title={`Download File (${sub.file_name || 'Attachment'})`}
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </a>
+                                )}
+
+                                {/* Approve Action */}
+                                {sub.status !== 'Approved' && (
+                                  <button
+                                    onClick={() => {
+                                      setApprovingSubId(sub.id);
+                                      setApprovalFeedback('Approved for institutional showcase');
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-all flex items-center gap-1 shadow-xs"
+                                    title="Approve & Publish to Public Showcase"
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    <span>Approve</span>
+                                  </button>
+                                )}
+
+                                {/* Reject / Request Revision Action */}
+                                {sub.status === 'Submitted' && (
+                                  <button
+                                    onClick={() => {
+                                      setRejectingSubId(sub.id);
+                                      setRejectionFeedback('');
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-all"
+                                    title="Reject or Request Revision"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+
+                                {/* Delete Record */}
+                                <button
+                                  onClick={() => handleDeleteSubmissionAction(sub.id, sub.topic)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                  title="Delete Submission Record"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+
+                              </div>
+                            </td>
+
+                          </tr>
+                        ))}
+
+                        {filteredTrackingList.length === 0 && (
+                          <tr>
+                            <td colSpan={8} className="py-10 text-center text-slate-400 italic">
+                              No submissions found in tracking table. Assigned tasks will show here once Sub-Admins upload their completed work.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================================
+                VIEW 2: ASSIGNED TASKS (Super Admin Assigns / Sub Admin Completes)
+                ========================================================================= */}
+            {methodsViewTab === 'tasks' && (
+              <div className="space-y-4">
+                
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                      {isSuperAdmin ? 'Institutional Task Assignments' : 'Tasks Assigned to You'}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {isSuperAdmin
+                        ? 'Super Admin task directives assigned to Sub-Admins across departments.'
+                        : 'Review tasks assigned by Super Admin and click "Submit Completed Work" to upload pedagogy materials.'}
+                    </p>
+                  </div>
+
+                  {isSuperAdmin && (
+                    <button
+                      onClick={openAddTaskModal}
+                      className="px-4 py-2 rounded-2xl bg-dhanekula-royal text-white font-bold text-xs uppercase tracking-wider shadow-md hover:bg-dhanekula-600 transition-all flex items-center gap-1.5"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Assign New Task</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {teachingTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 relative overflow-hidden"
+                    >
+                      {/* Top Accent Strip */}
+                      <div className={`absolute top-0 left-0 right-0 h-1.5 ${
+                        task.status === 'Approved' ? 'bg-emerald-500' : task.status === 'Submitted' ? 'bg-blue-500' : 'bg-amber-500'
+                      }`}></div>
+
+                      <div className="flex items-start justify-between gap-3 pt-1">
+                        <div className="space-y-1 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                              Dept: {task.department || 'ECE'}
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                              <Users className="h-3 w-3" />
+                              {task.no_of_faculty} Faculty
+                            </span>
+                          </div>
+
+                          <h4 className="text-sm font-black text-slate-900 dark:text-white leading-snug">
+                            {task.topic}
+                          </h4>
+                        </div>
+
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shrink-0 ${
+                          task.status === 'Approved'
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                            : task.status === 'Submitted'
+                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                            : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                        }`}>
+                          {task.status}
+                        </span>
+                      </div>
+
+                      {task.description && (
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-850/60 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
+                          {task.description}
+                        </p>
+                      )}
+
+                      {/* Sub-Admin Deliverable info if submitted */}
+                      {(task.submission_description || task.submission_file_path || task.status === 'Submitted' || task.status === 'Approved') && (
+                        <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-850/80 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                          <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between text-[11px]">
+                            <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <span>Completed Deliverable Attached</span>
+                            </span>
+                            {task.submission_date && (
+                              <span className="text-[10px] text-slate-400">
+                                {task.submission_date} {task.submission_time}
+                              </span>
+                            )}
+                          </div>
+
+                          {task.submission_description && (
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 leading-relaxed">
+                              {task.submission_description}
+                            </p>
+                          )}
+
+                          {task.submission_file_path && (
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-[10px] font-bold text-slate-500 truncate max-w-[180px]">
+                                📎 {task.submission_file_name || 'Deliverable Document'}
+                              </span>
+                              <a
+                                href={task.submission_file_path}
+                                download={task.submission_file_name || 'deliverable.pdf'}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 transition-all"
+                              >
+                                <Download className="h-3 w-3" />
+                                <span>Download</span>
+                              </a>
+                            </div>
+                          )}
+
+                          {task.submission_feedback && (
+                            <div className="text-[10px] text-emerald-800 dark:text-emerald-300 font-bold bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                              Super Admin Feedback: {task.submission_feedback}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Assigned To
+                          </span>
+                          <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                            {task.sub_admin_name || 'Sub Admin'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-0.5 text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                            Target Date & Time
+                          </span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                            <Calendar className="h-3 w-3 text-blue-500" />
+                            {task.date} {task.time}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Card Actions */}
+                      <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                        {isSuperAdmin ? (
+                          <div className="flex items-center gap-2 w-full justify-end">
+                            <button
+                              onClick={() => openEditTaskModal(task)}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all flex items-center gap-1"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                              <span>Edit Directive</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTask(task.id, task.topic)}
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-all"
+                              title="Delete Task"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : task.status === 'Pending' ? (
+                          <button
+                            onClick={() => openSubmitTaskModal(task)}
+                            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                          >
+                            <Upload className="h-4 w-4" />
+                            <span>⚡ Complete & Submit Work for this Task</span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2 w-full">
+                            <button
+                              onClick={() => openSubmitTaskModal(task)}
+                              className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 transition-all flex items-center justify-center gap-1.5"
+                            >
+                              <Edit className="h-3.5 w-3.5 text-blue-500" />
+                              <span>Update / Resubmit Work</span>
+                            </button>
+                            {task.submission_file_path && (
+                              <a
+                                href={task.submission_file_path}
+                                download={task.submission_file_name || 'deliverable.pdf'}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs transition-all flex items-center gap-1"
+                                title="Download Deliverable"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+                  ))}
+
+                  {teachingTasks.length === 0 && (
+                    <div className="col-span-2 p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 text-slate-400 italic">
+                      No teaching tasks found. {isSuperAdmin ? 'Click "+ Assign New Task" to create one.' : 'No tasks assigned yet.'}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================================
+                VIEW 3: SUB ADMIN SUBMISSION HISTORY TABLE
+                ========================================================================= */}
+            {!isSuperAdmin && methodsViewTab === 'history' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight">
+                      My Submission History Table
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Track the status of your uploaded Innovative Teaching Methods.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => openSubmitTaskModal()}
+                    className="px-4 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md flex items-center gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>New Submission</span>
+                  </button>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <tr>
+                          <th className="py-4 px-4 text-center w-14">S.No</th>
+                          <th className="py-4 px-4">Date</th>
+                          <th className="py-4 px-4">Time</th>
+                          <th className="py-4 px-5">Topic</th>
+                          <th className="py-4 px-4 text-center">Faculty Involved</th>
+                          <th className="py-4 px-4">Status</th>
+                          <th className="py-4 px-4 text-right">Uploaded File Link</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                        {teachingSubmissions.map((sub, index) => (
+                          <tr key={sub.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/20 transition-colors">
+                            <td className="py-4 px-4 text-center font-extrabold text-slate-400">
+                              #{index + 1}
+                            </td>
+                            <td className="py-4 px-4 whitespace-nowrap font-bold text-slate-900 dark:text-white">
+                              {sub.date}
+                            </td>
+                            <td className="py-4 px-4 whitespace-nowrap text-slate-400 text-[11px]">
+                              {sub.time || '10:00 AM'}
+                            </td>
+                            <td className="py-4 px-5 font-bold text-slate-900 dark:text-white">
+                              {sub.topic}
+                              {sub.feedback && (
+                                <span className="block text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                                  Note: {sub.feedback}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-4 px-4 text-center whitespace-nowrap">
+                              <span className="px-2.5 py-1 rounded-full text-xs font-black bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                {sub.no_of_faculty}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 whitespace-nowrap">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                sub.status === 'Approved'
+                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                                  : sub.status === 'Rejected'
+                                  ? 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-400 border-red-200 dark:border-red-800'
+                                  : 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                              }`}>
+                                {sub.status}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right whitespace-nowrap">
+                              {sub.file_path ? (
+                                <a
+                                  href={sub.file_path}
+                                  download={sub.file_name || 'method-resource.pdf'}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold hover:bg-blue-100 transition-colors"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  <span>{sub.file_name || 'Download File'}</span>
+                                </a>
+                              ) : (
+                                <span className="text-slate-400 text-xs">No file</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+
+                        {teachingSubmissions.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-slate-400 italic">
+                              No submissions recorded yet. Click "+ Submit Work / Method" to submit your first pedagogy innovation.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* =========================================================================
+                VIEW 4: STANDARD CURRICULUM METHODS CATALOG (20)
+                ========================================================================= */}
+            {methodsViewTab === 'catalog' && (
+              <div className="space-y-4">
+                
+                {/* Header Actions */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div className="relative w-full sm:max-w-xs group">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-hover:text-dhanekula-royal" />
+                    <input
+                      type="text"
+                      value={methodSearch}
+                      onChange={(e) => setMethodSearch(e.target.value)}
+                      placeholder="Filter standard curriculum methods..."
+                      className="w-full pl-9 pr-4 py-2 text-xs rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-dhanekula-500/50"
+                    />
+                  </div>
+
+                  {hasPermission('Manage Teaching Methods') && (
+                    <button
+                      onClick={openAddMethodModal}
+                      className="px-4 py-2 rounded-2xl bg-dhanekula-royal text-white font-bold text-xs uppercase tracking-wider shadow-md hover:bg-dhanekula-600 btn-micro-interaction flex items-center gap-1.5 shrink-0"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Add Curriculum Method</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Methods Table */}
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <tr>
+                          <th className="px-6 py-4">Method Name</th>
+                          <th className="px-6 py-4">Cohort</th>
+                          <th className="px-6 py-4">Category</th>
+                          <th className="px-6 py-4">Video Link</th>
+                          <th className="px-6 py-4">Objective / Expected Outcome</th>
+                          <th className="px-6 py-4">Tags</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
+                        {filteredMethods.map((m) => (
+                          <tr key={m.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                            <td className="px-6 py-4">
+                              <span className="font-bold text-slate-900 dark:text-white block">{m.name}</span>
+                              <span className="block text-[10px] text-slate-450 mt-0.5 truncate max-w-[200px]">{m.implementation}</span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-dhanekula-royal/10 text-dhanekula-royal dark:bg-dhanekula-navy/60 dark:text-dhanekula-300 border border-dhanekula-royal/20">
+                                Unified (ULC)
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-slate-650 dark:text-slate-350">
+                              {m.category}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {m.videoUrl ? (
+                                <a
+                                  href={m.videoUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 text-[10px] font-bold hover:bg-red-100 transition-colors"
+                                  title={m.videoUrl}
+                                >
+                                  <Video className="h-3 w-3" />
+                                  <span>YouTube Video</span>
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">No video</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-slate-650 dark:text-slate-350 font-medium max-w-[220px] truncate">
+                              {m.expectedOutcome}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-wrap gap-1 max-w-[180px]">
+                                {m.tags.map((tag, idx) => (
+                                  <span key={idx} className="px-1.5 py-0.5 rounded-lg bg-slate-105 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-medium border border-slate-200/50 dark:border-slate-700/50">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {hasPermission('Manage Teaching Methods') && (
+                                  <button
+                                    onClick={() => openEditMethodModal(m)}
+                                    className="p-1.5 text-slate-500 hover:text-dhanekula-600 dark:hover:text-dhanekula-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Edit Method"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {hasPermission('Manage Teaching Methods') && (
+                                  <button
+                                    onClick={() => deleteMethod(m.id)}
+                                    className="p-1.5 text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                                    title="Delete Method"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredMethods.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-8 text-center text-slate-450 italic">
+                              No teaching methods match your search.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
 
           </div>
         )}
@@ -4020,6 +5262,863 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ navigate, initia
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 1: ASSIGN / EDIT TEACHING TASK (SUPER ADMIN)
+          ========================================================================= */}
+      {showTaskModal && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+          <div className="w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-blue-600" />
+                  <span>{editingTask ? 'Edit Teaching Directive' : 'Assign New Innovative Teaching Task'}</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Super Admin module to delegate innovative pedagogy directives to department Sub-Admins.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowTaskModal(false);
+                  setEditingTask(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTask} className="space-y-4">
+              
+              {/* Sub Admin Assignee */}
+              {/* Assignment Target Scope Mode Selector */}
+              {!editingTask && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-700 dark:text-slate-300">
+                      Assign Scope / Target Faculty Coordinators *
+                    </label>
+                    <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      {taskAssignMode === 'all'
+                        ? `All (${subAdmins.length}) Coordinators`
+                        : taskAssignMode === 'selective'
+                        ? `${selectedTaskSubAdminIds.length} Selected`
+                        : '1 Coordinator'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200/60 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setTaskAssignMode('single')}
+                      className={`py-2 px-2 sm:px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                        taskAssignMode === 'single'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <User className="h-3.5 w-3.5" />
+                      <span>Single Person</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTaskAssignMode('selective');
+                        if (selectedTaskSubAdminIds.length === 0) {
+                          setSelectedTaskSubAdminIds(subAdmins.map(a => a.id));
+                        }
+                      }}
+                      className={`py-2 px-2 sm:px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                        taskAssignMode === 'selective'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      <span>Selective People</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTaskAssignMode('all');
+                        setSelectedTaskSubAdminIds(subAdmins.map(a => a.id));
+                      }}
+                      className={`py-2 px-2 sm:px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                        taskAssignMode === 'all'
+                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span>All People ({subAdmins.length})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 1. SINGLE SUB-ADMIN DROPDOWN VIEW */}
+              {(editingTask || taskAssignMode === 'single') && (
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Assign to Sub-Admin (Faculty Coordinator) *
+                  </label>
+                  <select
+                    required
+                    value={taskForm.sub_admin_id}
+                    onChange={(e) => setTaskForm({ ...taskForm, sub_admin_id: e.target.value })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="" disabled>▼ Select Sub-Admin Coordinator</option>
+                    {subAdmins.map((admin) => (
+                      <option key={admin.id} value={admin.id}>
+                        {admin.name} (@{admin.username}) - {admin.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 2. SELECTIVE PEOPLE MULTI-SELECT VIEW */}
+              {!editingTask && taskAssignMode === 'selective' && (
+                <div className="space-y-2.5 p-3.5 bg-slate-50 dark:bg-slate-850/60 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      <span className="font-bold text-slate-700 dark:text-slate-300 text-xs">
+                        Select Coordinators ({selectedTaskSubAdminIds.length} of {subAdmins.length} selected)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTaskSubAdminIds(subAdmins.map(a => a.id))}
+                        className="font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-700">•</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTaskSubAdminIds([])}
+                        className="font-bold text-slate-500 hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search within coordinators */}
+                  {subAdmins.length > 2 && (
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={taskSubAdminSearch}
+                        onChange={(e) => setTaskSubAdminSearch(e.target.value)}
+                        placeholder="Search coordinators by name, username or email..."
+                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+
+                  {/* Checklist of Faculty Coordinators */}
+                  <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                    {subAdmins
+                      .filter(a =>
+                        taskSubAdminSearch === '' ||
+                        a.name.toLowerCase().includes(taskSubAdminSearch.toLowerCase()) ||
+                        a.username.toLowerCase().includes(taskSubAdminSearch.toLowerCase()) ||
+                        a.email.toLowerCase().includes(taskSubAdminSearch.toLowerCase())
+                      )
+                      .map((admin) => {
+                        const isChecked = selectedTaskSubAdminIds.includes(admin.id);
+                        return (
+                          <label
+                            key={admin.id}
+                            className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                              isChecked
+                                ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setSelectedTaskSubAdminIds(selectedTaskSubAdminIds.filter(id => id !== admin.id));
+                                } else {
+                                  setSelectedTaskSubAdminIds([...selectedTaskSubAdminIds, admin.id]);
+                                }
+                              }}
+                              className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-extrabold text-slate-900 dark:text-white truncate text-xs">
+                                  {admin.name}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  @{admin.username}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {admin.email}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* 3. ALL PEOPLE BROADCAST VIEW */}
+              {!editingTask && taskAssignMode === 'all' && (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 border border-blue-200 dark:border-blue-800 flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shrink-0 shadow-md">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div className="text-xs space-y-1">
+                    <div className="font-black text-slate-900 dark:text-white">
+                      Institutional Directive Broadcast (All {subAdmins.length} Faculty Coordinators)
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      This will automatically generate and assign an individual teaching task directive to all active department Sub-Admins across the institution.
+                    </p>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {subAdmins.map((a) => (
+                        <span key={a.id} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/80 dark:bg-slate-900/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          {a.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Topic Name */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Topic Name / Pedagogy Directive *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={taskForm.topic}
+                  onChange={(e) => setTaskForm({ ...taskForm, topic: e.target.value })}
+                  placeholder="e.g. Flipped Classroom for Signal & Systems / AI Simulation Lab"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                />
+              </div>
+
+              {/* Date & Time */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Target Submission Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={taskForm.date}
+                    onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Target Time *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={taskForm.time}
+                    onChange={(e) => setTaskForm({ ...taskForm, time: e.target.value })}
+                    placeholder="e.g. 10:30 AM"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Number of Faculty & Department */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Number of Faculty Involved *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    required
+                    value={taskForm.no_of_faculty}
+                    onChange={(e) => setTaskForm({ ...taskForm, no_of_faculty: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Department
+                  </label>
+                  <select
+                    value={taskForm.department}
+                    onChange={(e) => setTaskForm({ ...taskForm, department: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-medium"
+                  >
+                    <option value="ECE">ECE</option>
+                    <option value="EEE">EEE</option>
+                    <option value="CSE">CSE</option>
+                    <option value="Mechanical">Mechanical</option>
+                    <option value="Civil">Civil</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Instructions / Description */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  Directive Instructions / Outcome Expectations
+                </label>
+                <textarea
+                  rows={3}
+                  value={taskForm.description}
+                  onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
+                  placeholder="Specify guidelines for the Sub-Admin, student cohorts, expected deliverables, and rubrics..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                />
+              </div>
+
+              {/* Form Buttons */}
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTaskModal(false);
+                    setEditingTask(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingTask}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black shadow-md disabled:opacity-50"
+                >
+                  {isSavingTask ? 'Saving Task...' : editingTask ? 'Update Directive' : 'Assign Directive'}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 2: SUB ADMIN SUBMISSION FORM (SUBMIT INNOVATIVE METHOD WITH FILE)
+          ========================================================================= */}
+      {showSubmissionModal && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+          <div className="w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
+                  <Upload className="h-4 w-4 text-emerald-600" />
+                  <span>Submit Innovative Teaching–Learning Method</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Complete your assigned task or submit innovative pedagogy with documentation & artifacts.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSubmissionModal(false);
+                  setSubmissionFile(null);
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleMethodSubmissionSubmit} className="space-y-4">
+              
+              {/* Linked Task Selector */}
+              {teachingTasks.length > 0 && (
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Linked Task Directive (Optional / Pre-fill)
+                  </label>
+                  <select
+                    value={selectedTaskIdForSubmit}
+                    onChange={(e) => {
+                      const tId = e.target.value;
+                      setSelectedTaskIdForSubmit(tId);
+                      if (tId !== 'none') {
+                        const matched = teachingTasks.find(t => String(t.id) === tId);
+                        if (matched) {
+                          setSubmissionForm(prev => ({
+                            ...prev,
+                            topic: matched.topic,
+                            no_of_faculty: matched.no_of_faculty || prev.no_of_faculty,
+                            department: matched.department || prev.department,
+                            description: matched.description ? `Implementation based on guidelines: ${matched.description}\n\n` : prev.description
+                          }));
+                        }
+                      }
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:outline-none"
+                  >
+                    <option value="none">-- Independent Pedagogy Innovation (No Linked Directive) --</option>
+                    {teachingTasks.map(t => (
+                      <option key={t.id} value={String(t.id)}>
+                        Task #{t.id}: {t.topic} (Due: {t.date} {t.time})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Field 1: Topic Name */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  1. Topic Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={submissionForm.topic}
+                  onChange={(e) => setSubmissionForm({ ...submissionForm, topic: e.target.value })}
+                  placeholder="e.g. Flipped Classroom Model for Digital Communications"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                />
+              </div>
+
+              {/* Fields 2 & 3: Date & Time (Auto-captured / Selectable) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span>2. Date *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Auto-captured</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={submissionForm.date}
+                    onChange={(e) => setSubmissionForm({ ...submissionForm, date: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span>3. Time *</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Auto-captured</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={submissionForm.time}
+                    onChange={(e) => setSubmissionForm({ ...submissionForm, time: e.target.value })}
+                    placeholder="e.g. 11:30 AM"
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Field 4: Number of Faculty & Department */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    4. Number of Faculty Involved *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    required
+                    value={submissionForm.no_of_faculty}
+                    onChange={(e) => setSubmissionForm({ ...submissionForm, no_of_faculty: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700 dark:text-slate-300">
+                    Department
+                  </label>
+                  <input
+                    type="text"
+                    value={submissionForm.department}
+                    onChange={(e) => setSubmissionForm({ ...submissionForm, department: e.target.value })}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Field 5: Description / Method Details */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 dark:text-slate-300">
+                  5. Method Details / Implementation Narrative *
+                </label>
+                <textarea
+                  rows={4}
+                  required
+                  value={submissionForm.description}
+                  onChange={(e) => setSubmissionForm({ ...submissionForm, description: e.target.value })}
+                  placeholder="Describe the innovative teaching methodology, pedagogical structure, student cohort activities, assessments, and learning outcomes..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none leading-relaxed"
+                />
+              </div>
+
+              {/* Field 6: File Upload (PDF, Images, Documents) */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">
+                  6. Upload Supporting Documentation / Artifacts (PDF, Images, Documents) *
+                </label>
+
+                <div className="p-4 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-850/50 hover:bg-slate-50 dark:hover:bg-slate-850 transition-colors text-center">
+                  <input
+                    type="file"
+                    id="teachingMethodFileUpload"
+                    accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setSubmissionFile(e.target.files[0]);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                  
+                  {submissionFile ? (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-left">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-600 shrink-0">
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        <div className="truncate">
+                          <span className="font-bold text-slate-900 dark:text-white block text-xs truncate">
+                            {submissionFile.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {(submissionFile.size / 1024 / 1024).toFixed(2)} MB • {submissionFile.type || 'Document'}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSubmissionFile(null)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
+                        title="Remove file"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="teachingMethodFileUpload"
+                      className="cursor-pointer flex flex-col items-center justify-center py-4 space-y-2 group"
+                    >
+                      <div className="p-3 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 group-hover:scale-110 transition-transform">
+                        <FileUp className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-slate-900 dark:text-white block">
+                          Click to select a file from your computer
+                        </span>
+                        <span className="text-[11px] text-slate-400 block mt-0.5">
+                          Supported Formats: PDF, DOCX, PPTX, JPG, PNG (Max 50MB)
+                        </span>
+                      </div>
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Form Buttons */}
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSubmissionModal(false);
+                    setSubmissionFile(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMethod}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black shadow-md disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Send className="h-4 w-4" />
+                  <span>{isSubmittingMethod ? 'Uploading & Submitting...' : 'Submit to Super Admin'}</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 3: SUBMISSION DETAIL PREVIEW (SUPER ADMIN & SUB ADMIN)
+          ========================================================================= */}
+      {previewTrackingSubmission && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 block">
+                  Submission Dossier #{previewTrackingSubmission.id}
+                </span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
+                  {previewTrackingSubmission.topic}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPreviewTrackingSubmission(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Quick Metadata Pill Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800 text-xs">
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Submission Date</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">{previewTrackingSubmission.date}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Time</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">{previewTrackingSubmission.time || '10:00 AM'}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Faculty Involved</span>
+                <span className="font-extrabold text-purple-600 dark:text-purple-400">{previewTrackingSubmission.no_of_faculty} Faculty</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Status</span>
+                <span className={`font-black uppercase ${
+                  previewTrackingSubmission.status === 'Approved' ? 'text-emerald-600' : previewTrackingSubmission.status === 'Rejected' ? 'text-red-600' : 'text-amber-600'
+                }`}>
+                  {previewTrackingSubmission.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Submitter details */}
+            <div className="flex items-center gap-3 p-3 rounded-2xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
+              <div className="h-9 w-9 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
+                {previewTrackingSubmission.sub_admin_name ? previewTrackingSubmission.sub_admin_name.charAt(0) : 'F'}
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-blue-600 uppercase block">Coordinator / Sub-Admin</span>
+                <span className="font-black text-slate-900 dark:text-white block">
+                  {previewTrackingSubmission.sub_admin_name || 'Department Faculty'} ({previewTrackingSubmission.department || 'ECE'})
+                </span>
+              </div>
+            </div>
+
+            {/* Full Narrative */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                Method Description & Pedagogy Implementation
+              </span>
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/60 dark:border-slate-800 text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
+                {previewTrackingSubmission.description || 'No description provided.'}
+              </div>
+            </div>
+
+            {/* Attached File Download & Direct Link */}
+            {previewTrackingSubmission.file_path && (
+              <div className="p-4 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-emerald-600 text-white">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-white block">
+                      {previewTrackingSubmission.file_name || 'teaching_method_material.pdf'}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Uploaded File Attachment • Ready for Download
+                    </span>
+                  </div>
+                </div>
+
+                <a
+                  href={previewTrackingSubmission.file_path}
+                  download={previewTrackingSubmission.file_name || 'teaching_method_material.pdf'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Download File</span>
+                </a>
+              </div>
+            )}
+
+            {/* Super Admin Review Actions inside Modal */}
+            {isSuperAdmin && previewTrackingSubmission.status !== 'Approved' && (
+              <div className="p-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800 flex flex-wrap items-center justify-between gap-2">
+                <span className="font-bold text-slate-700 dark:text-slate-300 text-xs">
+                  Super Admin Decision:
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setApprovingSubId(previewTrackingSubmission.id);
+                      setApprovalFeedback('Approved for public showcase');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-sm flex items-center gap-1"
+                  >
+                    <Check className="h-4 w-4" />
+                    <span>Approve Submission</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRejectingSubId(previewTrackingSubmission.id);
+                      setRejectionFeedback('');
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-sm flex items-center gap-1"
+                  >
+                    <X className="h-4 w-4" />
+                    <span>Reject</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setPreviewTrackingSubmission(null)}
+                className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold"
+              >
+                Close Dossier
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 4: APPROVE CONFIRMATION (SUPER ADMIN)
+          ========================================================================= */}
+      {approvingSubId && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-emerald-600">
+              <div className="p-2.5 rounded-full bg-emerald-50 dark:bg-emerald-950">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  Approve Teaching Method
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  This will publish the method to the Public Homepage Showcase.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-bold text-slate-700 dark:text-slate-300">
+                Approval Note / Commendation Feedback (Optional)
+              </label>
+              <textarea
+                rows={2}
+                value={approvalFeedback}
+                onChange={(e) => setApprovalFeedback(e.target.value)}
+                placeholder="e.g. Excellent active learning pedagogy. Approved for institutional showcase."
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setApprovingSubId(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApproveSubmission(approvingSubId)}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black shadow-md"
+              >
+                Confirm Approval & Publish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 5: REJECT / REVISION FEEDBACK (SUPER ADMIN)
+          ========================================================================= */}
+      {rejectingSubId && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-xs">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="p-2.5 rounded-full bg-red-50 dark:bg-red-950">
+                <AlertCircle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  Reject or Request Revision
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Please provide actionable feedback for the Sub-Admin.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="font-bold text-slate-700 dark:text-slate-300">
+                Rejection Reason / Revision Directives *
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={rejectionFeedback}
+                onChange={(e) => setRejectionFeedback(e.target.value)}
+                placeholder="Specify the required revisions or reasons for rejecting this pedagogy method..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setRejectingSubId(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRejectSubmission(rejectingSubId)}
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black shadow-md"
+              >
+                Send Rejection Feedback
+              </button>
+            </div>
           </div>
         </div>
       )}

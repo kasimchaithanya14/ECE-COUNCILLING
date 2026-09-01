@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { TeachingMethod, WeeklyActivity, CoursewareResource, Student, UserRole, CohortType, AdminUser, AuditLog, MediaSubmission, CounsellingSession } from '../types';
+import { TeachingMethod, WeeklyActivity, CoursewareResource, Student, UserRole, CohortType, AdminUser, AuditLog, MediaSubmission, CounsellingSession, TeachingTask, TeachingSubmission } from '../types';
 import {
   INITIAL_TEACHING_METHODS,
   INITIAL_WEEKLY_PLAN,
@@ -94,6 +94,25 @@ interface AppContextType {
   fetchAssignmentHistory: () => Promise<void>;
   assignStudents: (subAdminId: number | string, studentIds: string[], forceReassign: boolean, reason?: string) => Promise<any>;
   removeAssignment: (studentId: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Innovative Teaching–Learning Methods Workflow
+  teachingTasks: TeachingTask[];
+  teachingSubmissions: TeachingSubmission[];
+  trackingSubmissions: TeachingSubmission[];
+  publicShowcaseMethods: TeachingSubmission[];
+  publicTeachingTasks: TeachingTask[];
+  fetchTeachingTasks: () => Promise<void>;
+  fetchPublicTeachingTasks: () => Promise<void>;
+  createTeachingTask: (data: { sub_admin_id?: number; sub_admin_ids?: number[]; assign_all?: boolean; topic: string; description?: string; department?: string; date: string; time: string; no_of_faculty: number }) => Promise<{ success: boolean; id?: number; ids?: number[]; message?: string; error?: string }>;
+  updateTeachingTask: (id: number, data: Partial<TeachingTask>) => Promise<{ success: boolean; error?: string }>;
+  deleteTeachingTask: (id: number) => Promise<{ success: boolean; error?: string }>;
+  fetchTeachingSubmissions: () => Promise<void>;
+  fetchTrackingSubmissions: () => Promise<void>;
+  submitTeachingMethod: (formData: FormData) => Promise<{ success: boolean; message?: string; error?: string }>;
+  approveTeachingSubmission: (id: number, feedback?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  rejectTeachingSubmission: (id: number, feedback?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  deleteTeachingSubmission: (id: number) => Promise<{ success: boolean; error?: string }>;
+  fetchPublicShowcase: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -129,6 +148,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [adminStudents, setAdminStudents] = useState<Student[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
   const [assignmentHistory, setAssignmentHistory] = useState<any[]>([]);
+
+  // Innovative Teaching–Learning Methods Workflow States
+  const [teachingTasks, setTeachingTasks] = useState<TeachingTask[]>([]);
+  const [teachingSubmissions, setTeachingSubmissions] = useState<TeachingSubmission[]>([]);
+  const [trackingSubmissions, setTrackingSubmissions] = useState<TeachingSubmission[]>([]);
+  const [publicShowcaseMethods, setPublicShowcaseMethods] = useState<TeachingSubmission[]>([]);
+  const [publicTeachingTasks, setPublicTeachingTasks] = useState<TeachingTask[]>([]);
 
   // Modal States
   const [selectedMethod, setSelectedMethod] = useState<TeachingMethod | null>(null);
@@ -228,6 +254,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const initSession = async () => {
       await syncData();
+      await fetchPublicShowcase();
+      await fetchPublicTeachingTasks();
       try {
         const meRes = await fetch('/api/auth/me', { credentials: 'include' });
         if (meRes.ok) {
@@ -235,6 +263,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAdminUser(data.user);
           // Set role to faculty to allow edit triggers in basic tabs
           setRoleState('faculty');
+          await fetchTeachingTasks();
+          await fetchTeachingSubmissions();
+          if (data.user.role === 'SUPER_ADMIN') {
+            await fetchTrackingSubmissions();
+          }
         } else {
           setRoleState('student');
         }
@@ -533,6 +566,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRoleState('faculty'); // Ensure they have faculty edit triggers enabled
       showToast(`Welcome back, ${data.user.name}`);
       await syncData();
+      await fetchTeachingTasks();
+      await fetchTeachingSubmissions();
+      if (data.user.role === 'SUPER_ADMIN') {
+        await fetchTrackingSubmissions();
+      }
+      await fetchPublicShowcase();
       return { success: true };
     } catch (err: any) {
       return { success: false, error: 'Cannot connect to backend auth service.' };
@@ -997,6 +1036,227 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // =========================================================
+  // INNOVATIVE TEACHING–LEARNING METHODS WORKFLOW IMPLEMENTATIONS
+  // =========================================================
+
+  const fetchTeachingTasks = async () => {
+    try {
+      const res = await fetch('/api/teaching-tasks', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setTeachingTasks(data);
+      }
+    } catch (err) {
+      console.error('Error fetching teaching tasks:', err);
+    }
+  };
+
+  const fetchPublicTeachingTasks = async () => {
+    try {
+      const res = await fetch('/api/teaching-tasks/public');
+      if (res.ok) {
+        const data = await res.json();
+        setPublicTeachingTasks(data);
+      }
+    } catch (err) {
+      console.error('Error fetching public teaching tasks:', err);
+    }
+  };
+
+  const createTeachingTask = async (data: { sub_admin_id?: number; sub_admin_ids?: number[]; assign_all?: boolean; topic: string; description?: string; department?: string; date: string; time: string; no_of_faculty: number }) => {
+    try {
+      const res = await fetch('/api/teaching-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(resData.message || 'Task successfully assigned to Sub-Admin!');
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        await fetchTrackingSubmissions();
+        return { success: true, id: resData.id, ids: resData.ids, message: resData.message };
+      }
+      return { success: false, error: resData.error || 'Failed to assign task.' };
+    } catch (err: any) {
+      console.error('Error creating task:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const updateTeachingTask = async (id: number, data: Partial<TeachingTask>) => {
+    try {
+      const res = await fetch(`/api/teaching-tasks/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast('Teaching task updated successfully.');
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        return { success: true };
+      }
+      return { success: false, error: resData.error || 'Failed to update task.' };
+    } catch (err: any) {
+      console.error('Error updating task:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const deleteTeachingTask = async (id: number) => {
+    try {
+      const res = await fetch(`/api/teaching-tasks/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast('Teaching task deleted successfully.');
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        return { success: true };
+      }
+      return { success: false, error: resData.error || 'Failed to delete task.' };
+    } catch (err: any) {
+      console.error('Error deleting task:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const fetchTeachingSubmissions = async () => {
+    try {
+      const res = await fetch('/api/teaching-submissions', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setTeachingSubmissions(data);
+      }
+    } catch (err) {
+      console.error('Error fetching submissions:', err);
+    }
+  };
+
+  const fetchTrackingSubmissions = async () => {
+    try {
+      const res = await fetch('/api/teaching-submissions/tracking', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setTrackingSubmissions(data);
+      }
+    } catch (err) {
+      console.error('Error fetching tracking data:', err);
+    }
+  };
+
+  const submitTeachingMethod = async (formData: FormData) => {
+    try {
+      const res = await fetch('/api/teaching-submissions', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(resData.message || 'Innovative Teaching Method submitted successfully!');
+        await fetchTeachingSubmissions();
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        await fetchPublicShowcase();
+        return { success: true, message: resData.message };
+      }
+      return { success: false, error: resData.error || 'Failed to submit teaching method.' };
+    } catch (err: any) {
+      console.error('Error submitting teaching method:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const approveTeachingSubmission = async (id: number, feedback?: string) => {
+    try {
+      const res = await fetch(`/api/teaching-submissions/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedback }),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(resData.message || 'Teaching method approved and published!');
+        await fetchTrackingSubmissions();
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        await fetchPublicShowcase();
+        return { success: true, message: resData.message };
+      }
+      return { success: false, error: resData.error || 'Failed to approve submission.' };
+    } catch (err: any) {
+      console.error('Error approving submission:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const rejectTeachingSubmission = async (id: number, feedback?: string) => {
+    try {
+      const res = await fetch(`/api/teaching-submissions/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedback }),
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast(resData.message || 'Submission marked as Rejected with feedback.');
+        await fetchTrackingSubmissions();
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        return { success: true, message: resData.message };
+      }
+      return { success: false, error: resData.error || 'Failed to reject submission.' };
+    } catch (err: any) {
+      console.error('Error rejecting submission:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const deleteTeachingSubmission = async (id: number) => {
+    try {
+      const res = await fetch(`/api/teaching-submissions/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const resData = await res.json();
+      if (res.ok) {
+        showToast('Submission deleted.');
+        await fetchTrackingSubmissions();
+        await fetchTeachingTasks();
+        await fetchPublicTeachingTasks();
+        await fetchPublicShowcase();
+        return { success: true };
+      }
+      return { success: false, error: resData.error || 'Failed to delete submission.' };
+    } catch (err: any) {
+      console.error('Error deleting submission:', err);
+      return { success: false, error: err.message || 'Network error.' };
+    }
+  };
+
+  const fetchPublicShowcase = async () => {
+    try {
+      const res = await fetch('/api/teaching-submissions/showcase');
+      if (res.ok) {
+        const data = await res.json();
+        setPublicShowcaseMethods(data);
+      }
+    } catch (err) {
+      console.error('Error fetching public showcase methods:', err);
+    }
+  };
+
   const isAdminLoggedIn = !!adminUser;
 
   return (
@@ -1073,7 +1333,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetchAssignments,
         fetchAssignmentHistory,
         assignStudents,
-        removeAssignment
+        removeAssignment,
+
+        // Innovative Teaching–Learning Methods
+        teachingTasks,
+        teachingSubmissions,
+        trackingSubmissions,
+        publicShowcaseMethods,
+        publicTeachingTasks,
+        fetchTeachingTasks,
+        fetchPublicTeachingTasks,
+        createTeachingTask,
+        updateTeachingTask,
+        deleteTeachingTask,
+        fetchTeachingSubmissions,
+        fetchTrackingSubmissions,
+        submitTeachingMethod,
+        approveTeachingSubmission,
+        rejectTeachingSubmission,
+        deleteTeachingSubmission,
+        fetchPublicShowcase
       }}
     >
       {children}

@@ -1403,7 +1403,7 @@ router.delete('/admin/assignments/:studentId', authenticateToken, requireRole(['
 });
 
 // GET: Admin - list assignment history logs
-router.get('/api/admin/assignments/history', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+router.get('/admin/assignments/history', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
   try {
     const history = await dbQuery("SELECT * FROM assignment_history ORDER BY changed_at DESC");
     return res.json(history);
@@ -1413,4 +1413,641 @@ router.get('/api/admin/assignments/history', authenticateToken, requireRole(['SU
   }
 });
 
+// =========================================================
+// 7. INNOVATIVE TEACHING–LEARNING METHODS WORKFLOW ROUTES
+// =========================================================
+
+// --- A. TEACHING TASKS (Super Admin Assigns, Sub Admin Views) ---
+
+// POST: Super Admin creates/assigns a new task (Single, Selective, or All Sub-Admins)
+router.post('/teaching-tasks', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { sub_admin_id, sub_admin_ids, assign_all, topic, description, department, date, time, no_of_faculty } = req.body;
+
+  if (!topic || !date || !time) {
+    return res.status(400).json({ error: 'Topic Name, Target Date, and Target Time are required.' });
+  }
+
+  try {
+    let targetSubAdminIds = [];
+
+    if (assign_all === true || sub_admin_ids === 'all' || sub_admin_id === 'all') {
+      const allSubAdmins = await dbQuery("SELECT id, name, email FROM users WHERE role = 'SUB_ADMIN' AND status = 'Active'");
+      if (!allSubAdmins || allSubAdmins.length === 0) {
+        return res.status(400).json({ error: 'No active Sub-Admins found to assign.' });
+      }
+      targetSubAdminIds = allSubAdmins.map(u => u.id);
+    } else if (Array.isArray(sub_admin_ids) && sub_admin_ids.length > 0) {
+      targetSubAdminIds = sub_admin_ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+    } else if (sub_admin_id) {
+      const singleId = parseInt(sub_admin_id, 10);
+      if (!isNaN(singleId)) {
+        targetSubAdminIds = [singleId];
+      }
+    }
+
+    if (targetSubAdminIds.length === 0) {
+      return res.status(400).json({ error: 'Please select at least one Sub-Admin (Faculty Coordinator).' });
+    }
+
+    const facultyCount = Math.max(1, parseInt(no_of_faculty, 10) || 1);
+    const dept = department || 'ECE';
+
+    const createdTasks = [];
+    const assignedNames = [];
+
+    for (const sId of targetSubAdminIds) {
+      const subAdmin = await dbGet('SELECT id, name, email FROM users WHERE id = ?', [sId]);
+      if (subAdmin) {
+        const result = await dbRun(
+          `INSERT INTO teaching_tasks (
+            super_admin_id, sub_admin_id, topic, description, department, date, time, no_of_faculty, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')`,
+          [req.user.id, sId, topic, description || '', dept, date, time, facultyCount]
+        );
+        createdTasks.push(result.id);
+        assignedNames.push(subAdmin.name);
+      }
+    }
+
+    if (createdTasks.length === 0) {
+      return res.status(404).json({ error: 'Selected Sub-Admins could not be found.' });
+    }
+
+    await logActivity(
+      req.user.name,
+      'Assigned Teaching Task',
+      `Assigned "${topic}" to ${assignedNames.length} Sub-Admin(s): ${assignedNames.join(', ')} (${dept})`,
+      'Success'
+    );
+
+    return res.status(201).json({
+      message: assignedNames.length === 1
+        ? `Task successfully assigned to ${assignedNames[0]}.`
+        : `Task successfully assigned to ${assignedNames.length} Faculty Coordinators (${assignedNames.join(', ')}).`,
+      ids: createdTasks,
+      id: createdTasks[0],
+      count: createdTasks.length
+    });
+  } catch (error) {
+    console.error('Error creating teaching task:', error);
+    return res.status(500).json({ error: 'Failed to create and assign teaching task.' });
+  }
+});
+
+// GET: List teaching tasks (Super Admin sees all; Sub Admin sees their assigned tasks)
+router.get('/teaching-tasks', authenticateToken, async (req, res) => {
+  try {
+    let rows;
+    if (req.user.role === 'SUPER_ADMIN') {
+      rows = await dbQuery(`
+        SELECT 
+          tt.*,
+          u.name AS sub_admin_name,
+          u.email AS sub_admin_email,
+          u.username AS sub_admin_username,
+          su.name AS super_admin_name,
+          ts.id AS submission_id,
+          ts.date AS submission_date,
+          ts.time AS submission_time,
+          ts.file_path AS submission_file_path,
+          ts.file_name AS submission_file_name,
+          ts.file_size AS submission_file_size,
+          ts.file_type AS submission_file_type,
+          ts.description AS submission_description,
+          ts.status AS submission_status,
+          ts.feedback AS submission_feedback,
+          ts.created_at AS submitted_at,
+          ts.approved_at AS submission_approved_at,
+          (SELECT COUNT(*) FROM teaching_submissions WHERE task_id = tt.id) AS submissions_count,
+          (SELECT id FROM teaching_submissions WHERE task_id = tt.id ORDER BY id DESC LIMIT 1) AS latest_submission_id
+        FROM teaching_tasks tt
+        LEFT JOIN users u ON tt.sub_admin_id = u.id
+        LEFT JOIN users su ON tt.super_admin_id = su.id
+        LEFT JOIN (
+          SELECT ts1.*
+          FROM teaching_submissions ts1
+          INNER JOIN (
+            SELECT task_id, MAX(id) AS max_id
+            FROM teaching_submissions
+            WHERE task_id IS NOT NULL
+            GROUP BY task_id
+          ) ts2 ON ts1.id = ts2.max_id
+        ) ts ON tt.id = ts.task_id
+        ORDER BY tt.created_at DESC
+      `);
+    } else {
+      rows = await dbQuery(`
+        SELECT 
+          tt.*,
+          u.name AS sub_admin_name,
+          u.email AS sub_admin_email,
+          u.username AS sub_admin_username,
+          su.name AS super_admin_name,
+          ts.id AS submission_id,
+          ts.date AS submission_date,
+          ts.time AS submission_time,
+          ts.file_path AS submission_file_path,
+          ts.file_name AS submission_file_name,
+          ts.file_size AS submission_file_size,
+          ts.file_type AS submission_file_type,
+          ts.description AS submission_description,
+          ts.status AS submission_status,
+          ts.feedback AS submission_feedback,
+          ts.created_at AS submitted_at,
+          ts.approved_at AS submission_approved_at,
+          (SELECT COUNT(*) FROM teaching_submissions WHERE task_id = tt.id AND sub_admin_id = ?) AS submissions_count,
+          (SELECT id FROM teaching_submissions WHERE task_id = tt.id AND sub_admin_id = ? ORDER BY id DESC LIMIT 1) AS latest_submission_id
+        FROM teaching_tasks tt
+        LEFT JOIN users u ON tt.sub_admin_id = u.id
+        LEFT JOIN users su ON tt.super_admin_id = su.id
+        LEFT JOIN (
+          SELECT ts1.*
+          FROM teaching_submissions ts1
+          INNER JOIN (
+            SELECT task_id, MAX(id) AS max_id
+            FROM teaching_submissions
+            WHERE task_id IS NOT NULL
+            GROUP BY task_id
+          ) ts2 ON ts1.id = ts2.max_id
+        ) ts ON tt.id = ts.task_id
+        WHERE tt.sub_admin_id = ?
+        ORDER BY tt.created_at DESC
+      `, [req.user.id, req.user.id, req.user.id]);
+    }
+    return res.json(rows);
+  } catch (error) {
+    console.error('Error fetching teaching tasks:', error);
+    return res.status(500).json({ error: 'Failed to fetch teaching tasks.' });
+  }
+});
+
+// PUT: Super Admin edits a task
+router.put('/teaching-tasks/:id', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  const { sub_admin_id, topic, description, department, date, time, no_of_faculty, status } = req.body;
+
+  try {
+    const task = await dbGet('SELECT * FROM teaching_tasks WHERE id = ?', [id]);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found.' });
+    }
+
+    const facultyCount = Math.max(1, parseInt(no_of_faculty, 10) || task.no_of_faculty);
+    const assignedSubAdmin = sub_admin_id || task.sub_admin_id;
+
+    await dbRun(
+      `UPDATE teaching_tasks SET 
+        sub_admin_id = ?, topic = ?, description = ?, department = ?, date = ?, time = ?, no_of_faculty = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?`,
+      [
+        assignedSubAdmin,
+        topic || task.topic,
+        description !== undefined ? description : task.description,
+        department || task.department,
+        date || task.date,
+        time || task.time,
+        facultyCount,
+        status || task.status,
+        id
+      ]
+    );
+
+    await logActivity(req.user.name, 'Updated Teaching Task', `Task "${topic || task.topic}" (ID: ${id})`, 'Success');
+    return res.json({ message: 'Teaching task updated successfully.' });
+  } catch (error) {
+    console.error('Error updating task:', error);
+    return res.status(500).json({ error: 'Failed to update teaching task.' });
+  }
+});
+
+// DELETE: Super Admin deletes a task
+router.delete('/teaching-tasks/:id', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const task = await dbGet('SELECT topic FROM teaching_tasks WHERE id = ?', [id]);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found.' });
+    }
+
+    await dbRun('DELETE FROM teaching_tasks WHERE id = ?', [id]);
+    await logActivity(req.user.name, 'Deleted Teaching Task', `Task "${task.topic}"`, 'Success');
+
+    return res.json({ message: 'Teaching task deleted successfully.' });
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    return res.status(500).json({ error: 'Failed to delete task.' });
+  }
+});
+
+// --- B. TEACHING SUBMISSIONS (Sub Admin Submits, Super Admin Tracks & Approves) ---
+
+// POST: Sub Admin submits their work with uploaded file
+router.post('/teaching-submissions', authenticateToken, (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ error: `File upload error: ${err.message}` });
+    } else if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
+    const { task_id, topic, date, time, no_of_faculty, department, description } = req.body;
+    const file = req.file;
+
+    if (!topic || !description || !file) {
+      if (file) {
+        fs.unlink(file.path, () => {});
+      }
+      return res.status(400).json({ error: 'Topic name, method details/description, and an uploaded file are required.' });
+    }
+
+    try {
+      const now = new Date();
+      const subDate = date || now.toISOString().split('T')[0];
+      const subTime = time || now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const facultyCount = Math.max(1, parseInt(no_of_faculty, 10) || 1);
+      const dept = department || 'ECE';
+      const filePath = `/uploads/${file.filename}`;
+
+      let superAdminId = 1;
+      let linkedTaskId = null;
+
+      if (task_id && task_id !== 'none') {
+        const task = await dbGet('SELECT * FROM teaching_tasks WHERE id = ?', [task_id]);
+        if (task) {
+          linkedTaskId = task.id;
+          superAdminId = task.super_admin_id || 1;
+          // Automatically mark task status as Submitted
+          await dbRun("UPDATE teaching_tasks SET status = 'Submitted', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [task.id]);
+        }
+      } else {
+        const superAdminUser = await dbGet("SELECT id FROM users WHERE role = 'SUPER_ADMIN' LIMIT 1");
+        if (superAdminUser) {
+          superAdminId = superAdminUser.id;
+        }
+      }
+
+      const result = await dbRun(
+        `INSERT INTO teaching_submissions (
+          task_id, super_admin_id, sub_admin_id, topic, date, time, no_of_faculty, department,
+          description, file_path, file_name, file_type, file_size, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Submitted')`,
+        [
+          linkedTaskId,
+          superAdminId,
+          req.user.id,
+          topic,
+          subDate,
+          subTime,
+          facultyCount,
+          dept,
+          description,
+          filePath,
+          file.originalname,
+          file.mimetype,
+          file.size
+        ]
+      );
+
+      await logActivity(
+        req.user.name,
+        'Submitted Innovative Method',
+        `Topic: "${topic}" (Faculty: ${facultyCount}, File: ${file.originalname})`,
+        'Submitted'
+      );
+
+      return res.status(201).json({
+        message: 'Innovative Teaching–Learning Method submitted successfully and sent for Super Admin review!',
+        id: result.id
+      });
+    } catch (error) {
+      console.error('Error recording teaching submission:', error);
+      if (file) {
+        fs.unlink(file.path, () => {});
+      }
+      return res.status(500).json({ error: 'Failed to record teaching submission.' });
+    }
+  });
+});
+
+// GET: List submissions (Super Admin views all; Sub Admin views only their own submissions)
+router.get('/teaching-submissions', authenticateToken, async (req, res) => {
+  try {
+    let rows;
+    if (req.user.role === 'SUPER_ADMIN') {
+      rows = await dbQuery(`
+        SELECT 
+          ts.*,
+          u.name AS sub_admin_name,
+          u.email AS sub_admin_email,
+          u.username AS sub_admin_username,
+          tt.topic AS task_topic,
+          tt.status AS task_status
+        FROM teaching_submissions ts
+        LEFT JOIN users u ON ts.sub_admin_id = u.id
+        LEFT JOIN teaching_tasks tt ON ts.task_id = tt.id
+        ORDER BY ts.created_at DESC
+      `);
+    } else {
+      rows = await dbQuery(`
+        SELECT 
+          ts.*,
+          u.name AS sub_admin_name,
+          u.email AS sub_admin_email,
+          u.username AS sub_admin_username,
+          tt.topic AS task_topic,
+          tt.status AS task_status
+        FROM teaching_submissions ts
+        LEFT JOIN users u ON ts.sub_admin_id = u.id
+        LEFT JOIN teaching_tasks tt ON ts.task_id = tt.id
+        WHERE ts.sub_admin_id = ?
+        ORDER BY ts.created_at DESC
+      `, [req.user.id]);
+    }
+    return res.json(rows);
+  } catch (error) {
+    console.error('Error fetching submissions:', error);
+    return res.status(500).json({ error: 'Failed to fetch submissions.' });
+  }
+});
+
+// GET: Super Admin Tracking Table Data (Returns all 8 required columns + metadata)
+router.get('/teaching-submissions/tracking', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  try {
+    // 1. Fetch all assigned tasks and submissions combined
+    const submissions = await dbQuery(`
+      SELECT 
+        ts.id,
+        ts.task_id,
+        ts.date,
+        ts.time,
+        ts.topic,
+        ts.no_of_faculty,
+        ts.department,
+        ts.description,
+        ts.file_path,
+        ts.file_name,
+        ts.file_type,
+        ts.file_size,
+        ts.status,
+        ts.feedback,
+        ts.created_at,
+        ts.approved_at,
+        u.name AS sub_admin_name,
+        u.email AS sub_admin_email,
+        u.username AS sub_admin_username
+      FROM teaching_submissions ts
+      LEFT JOIN users u ON ts.sub_admin_id = u.id
+      ORDER BY ts.created_at DESC
+    `);
+
+    // 2. Format with 1-based Serial Number (S.No)
+    const formattedTrackingList = submissions.map((sub, index) => ({
+      s_no: index + 1,
+      id: sub.id,
+      task_id: sub.task_id,
+      date: sub.date,
+      time: sub.time,
+      topic: sub.topic,
+      no_of_faculty: sub.no_of_faculty,
+      sub_admin_name: sub.sub_admin_name || 'Sub Admin',
+      department: sub.department || 'ECE',
+      sub_admin_display: `${sub.sub_admin_name || 'Sub Admin'} (${sub.department || 'ECE'})`,
+      status: sub.status,
+      description: sub.description,
+      file_path: sub.file_path,
+      file_name: sub.file_name,
+      file_type: sub.file_type,
+      file_size: sub.file_size,
+      feedback: sub.feedback,
+      created_at: sub.created_at,
+      approved_at: sub.approved_at
+    }));
+
+    return res.json(formattedTrackingList);
+  } catch (error) {
+    console.error('Error fetching tracking submissions:', error);
+    return res.status(500).json({ error: 'Failed to fetch tracking data.' });
+  }
+});
+
+// POST: Super Admin Approves a submission
+router.post('/teaching-submissions/:id/approve', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  const { feedback } = req.body;
+
+  try {
+    const sub = await dbGet(`
+      SELECT ts.*, u.name AS sub_admin_name 
+      FROM teaching_submissions ts 
+      LEFT JOIN users u ON ts.sub_admin_id = u.id 
+      WHERE ts.id = ?
+    `, [id]);
+
+    if (!sub) {
+      return res.status(404).json({ error: 'Submission not found.' });
+    }
+
+    const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    // Update submission status to Approved
+    await dbRun(
+      'UPDATE teaching_submissions SET status = ?, feedback = ?, approved_at = ? WHERE id = ?',
+      ['Approved', feedback || 'Approved for Public Showcase', nowStr, id]
+    );
+
+    // If associated with a task, also mark the task as Approved
+    if (sub.task_id) {
+      await dbRun(
+        "UPDATE teaching_tasks SET status = 'Approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [sub.task_id]
+      );
+    }
+
+    await logActivity(
+      req.user.name,
+      'Approved Innovative Teaching Method',
+      `Topic: "${sub.topic}" by Sub-Admin "${sub.sub_admin_name}"`,
+      'Approved'
+    );
+
+    return res.json({
+      message: `"${sub.topic}" has been approved and published to the public showcase!`,
+      approved_at: nowStr
+    });
+  } catch (error) {
+    console.error('Error approving submission:', error);
+    return res.status(500).json({ error: 'Failed to approve submission.' });
+  }
+});
+
+// POST: Super Admin Rejects a submission
+router.post('/teaching-submissions/:id/reject', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  const { feedback } = req.body;
+
+  try {
+    const sub = await dbGet(`
+      SELECT ts.*, u.name AS sub_admin_name 
+      FROM teaching_submissions ts 
+      LEFT JOIN users u ON ts.sub_admin_id = u.id 
+      WHERE ts.id = ?
+    `, [id]);
+
+    if (!sub) {
+      return res.status(404).json({ error: 'Submission not found.' });
+    }
+
+    await dbRun(
+      'UPDATE teaching_submissions SET status = ?, feedback = ? WHERE id = ?',
+      ['Rejected', feedback || 'Requires revision and re-submission.', id]
+    );
+
+    if (sub.task_id) {
+      await dbRun(
+        "UPDATE teaching_tasks SET status = 'Pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [sub.task_id]
+      );
+    }
+
+    await logActivity(
+      req.user.name,
+      'Rejected Innovative Teaching Method',
+      `Topic: "${sub.topic}" by Sub-Admin "${sub.sub_admin_name}"`,
+      'Rejected'
+    );
+
+    return res.json({ message: 'Submission rejected and feedback recorded.' });
+  } catch (error) {
+    console.error('Error rejecting submission:', error);
+    return res.status(500).json({ error: 'Failed to reject submission.' });
+  }
+});
+
+// DELETE: Super Admin deletes a submission
+router.delete('/teaching-submissions/:id', authenticateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const sub = await dbGet('SELECT * FROM teaching_submissions WHERE id = ?', [id]);
+    if (!sub) {
+      return res.status(404).json({ error: 'Submission not found.' });
+    }
+
+    await dbRun('DELETE FROM teaching_submissions WHERE id = ?', [id]);
+
+    // Unlink physical file
+    if (sub.file_path) {
+      const fileName = path.basename(sub.file_path);
+      const localFilePath = path.join(uploadsDir, fileName);
+      fs.unlink(localFilePath, (err) => {
+        if (err) console.warn('Failed to delete submission file from disk:', err);
+      });
+    }
+
+    await logActivity(req.user.name, 'Deleted Submission Record', `Topic: "${sub.topic}"`, 'Success');
+
+    return res.json({ message: 'Submission permanently deleted.' });
+  } catch (error) {
+    console.error('Error deleting submission:', error);
+    return res.status(500).json({ error: 'Failed to delete submission.' });
+  }
+});
+
+// --- C. PUBLIC MAIN PAGE SHOWCASE (Accessible to all visitors) ---
+
+// GET: Public list of all uploaded Innovative Teaching-Learning Methods (visible to all on main page)
+router.get('/teaching-submissions/showcase', async (req, res) => {
+  try {
+    const showcaseMethods = await dbQuery(`
+      SELECT 
+        ts.id,
+        ts.topic,
+        ts.date,
+        ts.time,
+        ts.no_of_faculty,
+        ts.department,
+        ts.description,
+        ts.file_path,
+        ts.file_name,
+        ts.file_type,
+        ts.file_size,
+        ts.status,
+        ts.approved_at,
+        ts.created_at,
+        u.name AS faculty_lead_name,
+        u.email AS faculty_lead_email,
+        u.username AS faculty_lead_username
+      FROM teaching_submissions ts
+      LEFT JOIN users u ON ts.sub_admin_id = u.id
+      WHERE ts.status IN ('Approved', 'Submitted')
+      ORDER BY CASE WHEN ts.status = 'Approved' THEN 0 ELSE 1 END, ts.id DESC
+    `);
+
+    return res.json(showcaseMethods);
+  } catch (error) {
+    console.error('Error fetching public showcase:', error);
+    return res.status(500).json({ error: 'Failed to load innovative methods showcase.' });
+  }
+});
+
+// GET: Public list of all assigned teaching tasks with live sub-admin completion status (visible to all on main page)
+router.get('/teaching-tasks/public', async (req, res) => {
+  try {
+    const tasks = await dbQuery(`
+      SELECT 
+        tt.id,
+        tt.topic,
+        tt.description,
+        tt.department,
+        tt.date,
+        tt.time,
+        tt.no_of_faculty,
+        tt.status,
+        tt.created_at,
+        tt.updated_at,
+        u.name AS sub_admin_name,
+        u.email AS sub_admin_email,
+        u.username AS sub_admin_username,
+        su.name AS super_admin_name,
+        ts.id AS submission_id,
+        ts.date AS submission_date,
+        ts.time AS submission_time,
+        ts.file_path AS submission_file_path,
+        ts.file_name AS submission_file_name,
+        ts.file_size AS submission_file_size,
+        ts.file_type AS submission_file_type,
+        ts.description AS submission_description,
+        ts.status AS submission_status,
+        ts.feedback AS submission_feedback,
+        ts.created_at AS submitted_at,
+        ts.approved_at AS submission_approved_at
+      FROM teaching_tasks tt
+      LEFT JOIN users u ON tt.sub_admin_id = u.id
+      LEFT JOIN users su ON tt.super_admin_id = su.id
+      LEFT JOIN (
+        SELECT ts1.*
+        FROM teaching_submissions ts1
+        INNER JOIN (
+          SELECT task_id, MAX(id) AS max_id
+          FROM teaching_submissions
+          WHERE task_id IS NOT NULL
+          GROUP BY task_id
+        ) ts2 ON ts1.id = ts2.max_id
+      ) ts ON tt.id = ts.task_id
+      ORDER BY 
+        CASE 
+          WHEN tt.status = 'Approved' OR ts.status = 'Approved' THEN 1
+          WHEN tt.status = 'Submitted' OR ts.status = 'Submitted' THEN 2
+          ELSE 3
+        END,
+        tt.id DESC
+    `);
+
+    return res.json(tasks);
+  } catch (error) {
+    console.error('Error fetching public teaching tasks:', error);
+    return res.status(500).json({ error: 'Failed to load public teaching tasks.' });
+  }
+});
+
 export default router;
+

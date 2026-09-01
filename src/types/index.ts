@@ -164,3 +164,67 @@ export interface CounsellingSession {
   student_roll?: string;
 }
 
+export interface TeachingTask {
+  id: number;
+  super_admin_id: number;
+  super_admin_name?: string;
+  sub_admin_id: number;
+  sub_admin_name?: string;
+  sub_admin_email?: string;
+  sub_admin_username?: string;
+  topic: string;
+  description?: string;
+  department: string;
+  date: string;
+  time: string;
+  no_of_faculty: number;
+  status: 'Pending' | 'Submitted' | 'Approved' | 'Rejected';
+  submissions_count?: number;
+  latest_submission_id?: number;
+  submission_id?: number;
+  submission_date?: string;
+  submission_time?: string;
+  submission_file_path?: string;
+  submission_file_name?: string;
+  submission_file_size?: number;
+  submission_file_type?: string;
+  submission_description?: string;
+  submission_status?: 'Pending' | 'Submitted' | 'Approved' | 'Rejected';
+  submission_feedback?: string | null;
+  submitted_at?: string;
+  submission_approved_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TeachingSubmission {
+  id: number;
+  s_no?: number;
+  task_id?: number | null;
+  super_admin_id?: number;
+  sub_admin_id: number;
+  sub_admin_name?: string;
+  sub_admin_email?: string;
+  sub_admin_username?: string;
+  sub_admin_display?: string;
+  faculty_lead_name?: string;
+  faculty_lead_email?: string;
+  topic: string;
+  date: string;
+  time: string;
+  no_of_faculty: number;
+  department: string;
+  description: string;
+  file_path: string;
+  file_name: string;
+  file_type?: string;
+  file_size?: number;
+  status: 'Pending' | 'Submitted' | 'Approved' | 'Rejected';
+  feedback?: string | null;
+  created_at: string;
+  approved_at?: string | null;
+  task_topic?: string;
+  task_status?: string;
+}
+
+

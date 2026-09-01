@@ -221,6 +221,53 @@ export const initDb = async () => {
     )
   `);
 
+  // 11. Innovative Teaching Tasks Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS teaching_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      super_admin_id INTEGER NOT NULL,
+      sub_admin_id INTEGER NOT NULL,
+      topic TEXT NOT NULL,
+      description TEXT,
+      department TEXT DEFAULT 'ECE',
+      date TEXT NOT NULL,
+      time TEXT NOT NULL,
+      no_of_faculty INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'Pending',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (super_admin_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (sub_admin_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // 12. Innovative Teaching Submissions Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS teaching_submissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER,
+      super_admin_id INTEGER,
+      sub_admin_id INTEGER NOT NULL,
+      topic TEXT NOT NULL,
+      date TEXT NOT NULL,
+      time TEXT NOT NULL,
+      no_of_faculty INTEGER NOT NULL DEFAULT 1,
+      department TEXT DEFAULT 'ECE',
+      description TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      file_type TEXT,
+      file_size INTEGER,
+      status TEXT NOT NULL DEFAULT 'Submitted',
+      feedback TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      approved_at TEXT,
+      FOREIGN KEY (task_id) REFERENCES teaching_tasks(id) ON DELETE SET NULL,
+      FOREIGN KEY (super_admin_id) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (sub_admin_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
   // Migration: Add columns to students table if not exists
   const addColumn = async (col, type, def = 'NULL') => {
     try {
@@ -808,5 +855,161 @@ export const initDb = async () => {
       );
     }
     console.log('Seeded student records.');
+  }
+
+  // Seed default Sub-Admin if none exists
+  const existingSubAdmin = await dbGet('SELECT * FROM users WHERE role = ?', ['SUB_ADMIN']);
+  let subAdminId = existingSubAdmin ? existingSubAdmin.id : null;
+
+  if (!existingSubAdmin) {
+    const subAdminPassHash = await bcrypt.hash('Faculty@123', 10);
+    const subAdminPerms = JSON.stringify([
+      'Manage Teaching Methods',
+      'Manage Courses',
+      'Create Content',
+      'Edit Content',
+      'View Students',
+      'Manage Students',
+      'View Counselling',
+      'Manage Counselling',
+      'Manage Media Submissions'
+    ]);
+    const subResult = await dbRun(
+      'INSERT INTO users (name, email, username, password_hash, role, status, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ['Dr. K. Srinivas Rao', 'srinivas.rao@dhanekula.ac.in', 'faculty_ece', subAdminPassHash, 'SUB_ADMIN', 'Active', subAdminPerms]
+    );
+    subAdminId = subResult.id;
+    console.log('Seeded default Sub Admin: "faculty_ece" / "Faculty@123"');
+  }
+
+  const superAdminUser = await dbGet('SELECT id FROM users WHERE role = ?', ['SUPER_ADMIN']);
+  const superAdminId = superAdminUser ? superAdminUser.id : 1;
+
+  // Seed Teaching Tasks
+  const taskCount = await dbGet('SELECT COUNT(*) as count FROM teaching_tasks');
+  if (taskCount.count === 0 && subAdminId) {
+    const defaultTasks = [
+      {
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Flipped Classroom Pedagogy in Digital Signal Processing',
+        description: 'Design and upload lecture video modules and active problem-solving classroom templates for Fast Fourier Transform concepts.',
+        department: 'ECE',
+        date: '2026-08-25',
+        time: '10:30 AM',
+        no_of_faculty: 3,
+        status: 'Approved'
+      },
+      {
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Project-Based Learning with IoT & Edge AI Hardware',
+        description: 'Prepare laboratory case studies where students build ESP32 edge intelligence nodes for smart environmental sensing.',
+        department: 'ECE',
+        date: '2026-08-28',
+        time: '02:00 PM',
+        no_of_faculty: 2,
+        status: 'Approved'
+      },
+      {
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Interactive Simulation Labs using Proteus & MATLAB',
+        description: 'Document stepwise virtual circuit simulations and verification rubrics for RF transceiver and antenna designs.',
+        department: 'ECE',
+        date: '2026-08-30',
+        time: '11:15 AM',
+        no_of_faculty: 2,
+        status: 'Submitted'
+      },
+      {
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Peer-to-Peer Collaborative Code Reviews in Verilog HDL',
+        description: 'Establish structured peer-review rubrics for synthesizable RTL coding and testbench generation.',
+        department: 'ECE',
+        date: '2026-09-02',
+        time: '03:30 PM',
+        no_of_faculty: 4,
+        status: 'Pending'
+      }
+    ];
+
+    for (const t of defaultTasks) {
+      await dbRun(
+        'INSERT INTO teaching_tasks (super_admin_id, sub_admin_id, topic, description, department, date, time, no_of_faculty, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [t.super_admin_id, t.sub_admin_id, t.topic, t.description, t.department, t.date, t.time, t.no_of_faculty, t.status]
+      );
+    }
+    console.log('Seeded initial teaching tasks.');
+  }
+
+  // Seed Teaching Submissions
+  const submissionCount = await dbGet('SELECT COUNT(*) as count FROM teaching_submissions');
+  if (submissionCount.count === 0 && subAdminId) {
+    const defaultSubmissions = [
+      {
+        task_id: 1,
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Flipped Classroom Pedagogy in Digital Signal Processing',
+        date: '2026-08-26',
+        time: '11:00 AM',
+        no_of_faculty: 3,
+        department: 'ECE',
+        description: 'Implemented the 3-stage Flipped Classroom model for 3rd Year ECE. Pre-class micro-lectures were assigned on Canvas, followed by hands-on MATLAB filter tuning in class. 94% comprehension rate achieved in formative assessments.',
+        file_path: '/uploads/flipped_classroom_methodology.pdf',
+        file_name: 'flipped_classroom_methodology.pdf',
+        file_type: 'application/pdf',
+        file_size: 154200,
+        status: 'Approved',
+        feedback: 'Excellent documentation and structured implementation workflow. Approved for public showcase.',
+        approved_at: '2026-08-27 09:30:00'
+      },
+      {
+        task_id: 2,
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Project-Based Learning with IoT & Edge AI Hardware',
+        date: '2026-08-29',
+        time: '04:15 PM',
+        no_of_faculty: 2,
+        department: 'ECE',
+        description: 'Hands-on hardware sprint where 18 student teams deployed TinyML models onto ESP32 and STM32 microcontrollers. Full schematic diagrams, rubric criteria, and sample projects are compiled in the attached guide.',
+        file_path: '/uploads/iot_edge_project_based_learning.pdf',
+        file_name: 'iot_edge_project_based_learning.pdf',
+        file_type: 'application/pdf',
+        file_size: 218400,
+        status: 'Approved',
+        feedback: 'Outstanding industry-aligned coursework model. Approved.',
+        approved_at: '2026-08-30 08:45:00'
+      },
+      {
+        task_id: 3,
+        super_admin_id: superAdminId,
+        sub_admin_id: subAdminId,
+        topic: 'Interactive Simulation Labs using Proteus & MATLAB',
+        date: '2026-08-30',
+        time: '11:45 AM',
+        no_of_faculty: 2,
+        department: 'ECE',
+        description: 'Comprehensive virtual lab worksheets and live Proteus circuit simulation files for LCD interfacing and sensor ADC conversion.',
+        file_path: '/uploads/flipped_classroom_methodology.pdf',
+        file_name: 'proteus_simulation_lab_manual.pdf',
+        file_type: 'application/pdf',
+        file_size: 198000,
+        status: 'Submitted',
+        feedback: null,
+        approved_at: null
+      }
+    ];
+
+    for (const sub of defaultSubmissions) {
+      await dbRun(
+        'INSERT INTO teaching_submissions (task_id, super_admin_id, sub_admin_id, topic, date, time, no_of_faculty, department, description, file_path, file_name, file_type, file_size, status, feedback, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [sub.task_id, sub.super_admin_id, sub.sub_admin_id, sub.topic, sub.date, sub.time, sub.no_of_faculty, sub.department, sub.description, sub.file_path, sub.file_name, sub.file_type, sub.file_size, sub.status, sub.feedback, sub.approved_at]
+      );
+    }
+    console.log('Seeded initial teaching submissions.');
   }
 };
